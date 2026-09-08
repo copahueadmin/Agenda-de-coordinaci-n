@@ -1,0 +1,2718 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agenda Coordinación Operativa · Hotel Copahue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: #E8E8EA; font-family: 'Inter', sans-serif; }
+  #root { max-width: 900px; margin: 24px auto; padding: 0 12px; }
+  .acp-spin { animation: acp-spin 1s linear infinite; }
+  @keyframes acp-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @media (max-width: 600px) { #root { margin: 0; padding: 0; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+<script>
+// Reemplaza el almacenamiento persistente del artefacto por localStorage del navegador.
+// Los datos quedan guardados en ESTE navegador/dispositivo (no se sincronizan entre dispositivos).
+(function () {
+  const PREFIX = "agenda_hotel_copahue::";
+
+  window.storage = {
+    async get(key) {
+      try {
+        const raw = localStorage.getItem(PREFIX + key);
+        if (raw === null) return null;
+        return { key, value: raw, shared: false };
+      } catch (e) {
+        return null;
+      }
+    },
+    async set(key, value) {
+      try {
+        localStorage.setItem(PREFIX + key, value);
+        return { key, value, shared: false };
+      } catch (e) {
+        return null;
+      }
+    },
+    async delete(key) {
+      try {
+        localStorage.removeItem(PREFIX + key);
+        return { key, deleted: true, shared: false };
+      } catch (e) {
+        return null;
+      }
+    },
+    async list(prefix) {
+      try {
+        const p = PREFIX + (prefix || "");
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf(p) === 0) keys.push(k.slice(PREFIX.length));
+        }
+        return { keys, prefix, shared: false };
+      } catch (e) {
+        return null;
+      }
+    },
+  };
+})();
+
+</script>
+
+<script>
+const {
+  useState,
+  useEffect,
+  useCallback,
+  useRef
+} = React;
+function IconBase({
+  size = 16,
+  color = "currentColor",
+  strokeWidth = 2,
+  children,
+  ...rest
+}) {
+  return /*#__PURE__*/React.createElement("svg", {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: color,
+    strokeWidth: strokeWidth,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    ...rest
+  }, children);
+}
+const Plus = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("line", {
+  x1: "12",
+  y1: "5",
+  x2: "12",
+  y2: "19"
+}), /*#__PURE__*/React.createElement("line", {
+  x1: "5",
+  y1: "12",
+  x2: "19",
+  y2: "12"
+}));
+const Trash2 = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("polyline", {
+  points: "3 6 5 6 21 6"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M10 11v6"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M14 11v6"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"
+}));
+const ChevronDown = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("polyline", {
+  points: "6 9 12 15 18 9"
+}));
+const ChevronRight = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("polyline", {
+  points: "9 18 15 12 9 6"
+}));
+const ChevronLeft = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("polyline", {
+  points: "15 18 9 12 15 6"
+}));
+const Bell = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("path", {
+  d: "M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M13.73 21a2 2 0 0 1-3.46 0"
+}));
+const Check = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("polyline", {
+  points: "20 6 9 17 4 12"
+}));
+const X = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("line", {
+  x1: "18",
+  y1: "6",
+  x2: "6",
+  y2: "18"
+}), /*#__PURE__*/React.createElement("line", {
+  x1: "6",
+  y1: "6",
+  x2: "18",
+  y2: "18"
+}));
+const Users = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("path", {
+  d: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"
+}), /*#__PURE__*/React.createElement("circle", {
+  cx: "9",
+  cy: "7",
+  r: "4"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M23 21v-2a4 4 0 0 0-3-3.87"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M16 3.13a4 4 0 0 1 0 7.75"
+}));
+const Repeat = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("path", {
+  d: "M17 1l4 4-4 4"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M3 11V9a4 4 0 0 1 4-4h14"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M7 23l-4-4 4-4"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M21 13v2a4 4 0 0 1-4 4H3"
+}));
+const Download = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("path", {
+  d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+}), /*#__PURE__*/React.createElement("polyline", {
+  points: "7 10 12 15 17 10"
+}), /*#__PURE__*/React.createElement("line", {
+  x1: "12",
+  y1: "15",
+  x2: "12",
+  y2: "3"
+}));
+const Loader2 = p => /*#__PURE__*/React.createElement(IconBase, {
+  ...p,
+  className: "acp-spin"
+}, /*#__PURE__*/React.createElement("path", {
+  d: "M21 12a9 9 0 1 1-6.219-8.56"
+}));
+const Pencil = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("path", {
+  d: "M12 20h9"
+}), /*#__PURE__*/React.createElement("path", {
+  d: "M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"
+}));
+const Save = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("path", {
+  d: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"
+}), /*#__PURE__*/React.createElement("polyline", {
+  points: "17 21 17 13 7 13 7 21"
+}), /*#__PURE__*/React.createElement("polyline", {
+  points: "7 3 7 8 15 8"
+}));
+const ArrowRight = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("line", {
+  x1: "5",
+  y1: "12",
+  x2: "19",
+  y2: "12"
+}), /*#__PURE__*/React.createElement("polyline", {
+  points: "12 5 19 12 12 19"
+}));
+const CalendarDays = p => /*#__PURE__*/React.createElement(IconBase, p, /*#__PURE__*/React.createElement("rect", {
+  x: "3",
+  y: "4",
+  width: "18",
+  height: "18",
+  rx: "2"
+}), /*#__PURE__*/React.createElement("line", {
+  x1: "16",
+  y1: "2",
+  x2: "16",
+  y2: "6"
+}), /*#__PURE__*/React.createElement("line", {
+  x1: "8",
+  y1: "2",
+  x2: "8",
+  y2: "6"
+}), /*#__PURE__*/React.createElement("line", {
+  x1: "3",
+  y1: "10",
+  x2: "21",
+  y2: "10"
+}));
+const INK = "#33363A";
+const INK_LIGHT = "#46494E";
+const BRASS = "#A9814E";
+const BRASS_LIGHT = "#C9A467";
+const PARCHMENT = "#F1F1F2";
+const PAPER = "#FAFAFA";
+const CHARCOAL = "#2A2A2C";
+const MUTED = "#84848A";
+const SAGE = "#6F8567";
+const CLAY = "#B5503B";
+const HAIRLINE = "#E0E0E2";
+const HOTEL_LOGO = "data:image/png;base64,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";
+const DAY_LABELS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const RECURRING_QUICK = [{
+  label: "Mantenimiento",
+  person: "Encargado de mantenimiento",
+  time: "10:00"
+}, {
+  label: "Gerencia",
+  person: "Gerente",
+  time: "09:00"
+}, {
+  label: "RRHH",
+  person: "Recursos Humanos",
+  time: "11:30"
+}];
+const LEAD_DAYS = {
+  same: 0,
+  "1d": 1,
+  "2d": 2,
+  "1w": 7
+};
+const LEAD_LABEL = {
+  same: "El mismo día",
+  "1d": "1 día antes",
+  "2d": "2 días antes",
+  "1w": "1 semana antes"
+};
+const REPEAT_LABEL = {
+  none: "No se repite",
+  daily: "Todos los días",
+  weekly: "Semanal",
+  monthly: "Mensual"
+};
+const LEVELS = ["baja", "media", "alta"];
+const LEVEL_COLOR = {
+  alta: CLAY,
+  media: BRASS,
+  baja: SAGE
+};
+const LEVEL_LABEL = {
+  alta: "Alta",
+  media: "Media",
+  baja: "Baja"
+};
+function pad(n) {
+  return n < 10 ? "0" + n : "" + n;
+}
+function toISO(d) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function fromISO(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+function mondayOf(d) {
+  const r = new Date(d);
+  const day = (r.getDay() + 6) % 7;
+  r.setDate(r.getDate() - day);
+  r.setHours(0, 0, 0, 0);
+  return r;
+}
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+function sameDate(a, b) {
+  return toISO(a) === toISO(b);
+}
+function isOccurrence(template, iso) {
+  const date = fromISO(iso);
+  const start = fromISO(template.startDate);
+  if (date < start) return false;
+  if (template.repeat === "daily") return true;
+  if (template.repeat === "weekly") return date.getDay() === start.getDay();
+  if (template.repeat === "monthly") return date.getDate() === start.getDate();
+  return false;
+}
+function previousOccurrenceISO(template, iso) {
+  const date = fromISO(iso);
+  const start = fromISO(template.startDate);
+  let prev;
+  if (template.repeat === "daily") prev = addDays(date, -1);else if (template.repeat === "weekly") prev = addDays(date, -7);else if (template.repeat === "monthly") {
+    prev = new Date(date);
+    prev.setMonth(prev.getMonth() - 1);
+  } else return null;
+  if (prev < start) return null;
+  return toISO(prev);
+}
+function occurrencesInRange(template, fromDate, toDate) {
+  const out = [];
+  let cur = new Date(Math.max(fromDate, fromISO(template.startDate)));
+  cur.setHours(0, 0, 0, 0);
+  while (cur <= toDate) {
+    if (isOccurrence(template, toISO(cur))) out.push(toISO(cur));
+    cur = addDays(cur, 1);
+  }
+  return out;
+}
+function useFonts() {
+  useEffect(() => {
+    if (document.getElementById("agenda-copahue-fonts")) return;
+    const link = document.createElement("link");
+    link.id = "agenda-copahue-fonts";
+    link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap";
+    document.head.appendChild(link);
+  }, []);
+}
+function reminderKey(dayISO, taskId) {
+  return `${dayISO}__${taskId}`;
+}
+function icsDate(iso, time) {
+  const [h, m] = (time || "09:00").split(":");
+  return `${iso.replace(/-/g, "")}T${pad(Number(h))}${pad(Number(m))}00`;
+}
+function buildICS(reminderIndex, templates) {
+  const today = new Date();
+  const horizon = addDays(today, 120);
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Hotel Copahue//Agenda Operativa//ES"];
+  const stamp = icsDate(toISO(new Date()), `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`);
+  const addEvent = (uidStr, title, dayISO, time, lead, desc) => {
+    const days = LEAD_DAYS[lead] ?? 0;
+    lines.push("BEGIN:VEVENT", `UID:${uidStr}@agenda.hotelcopahue`, `DTSTAMP:${stamp}Z`, `DTSTART:${icsDate(dayISO, time)}`, `SUMMARY:${title}`, desc ? `DESCRIPTION:${desc}` : null, "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${title}`, `TRIGGER:-P${days}D`, "END:VALARM", "END:VEVENT");
+  };
+  Object.values(reminderIndex || {}).forEach(e => {
+    if (e.recurringId) return;
+    addEvent(e.taskId, e.title, e.dayISO, e.time, e.lead, e.person || "");
+  });
+  (templates || []).forEach(t => {
+    if (!t.reminder || !t.reminder.enabled) return;
+    const occs = occurrencesInRange(t, today, horizon);
+    occs.forEach(iso => addEvent(`${t.id}-${iso}`, t.title, iso, t.time, t.reminder.lead, t.person || ""));
+  });
+  lines.push("END:VCALENDAR");
+  return lines.filter(Boolean).join("\r\n");
+}
+function downloadText(filename, text) {
+  const blob = new Blob([text], {
+    type: "text/calendar;charset=utf-8"
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function LevelPicker({
+  label,
+  value,
+  onChange
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: MUTED
+    }
+  }, label), LEVELS.map(lv => /*#__PURE__*/React.createElement("button", {
+    key: lv,
+    type: "button",
+    onClick: () => onChange(lv),
+    style: {
+      fontSize: 11.5,
+      padding: "4px 9px",
+      borderRadius: 6,
+      border: `1px solid ${value === lv ? LEVEL_COLOR[lv] : HAIRLINE}`,
+      background: value === lv ? LEVEL_COLOR[lv] : PAPER,
+      color: value === lv ? "#fff" : CHARCOAL,
+      cursor: "pointer",
+      fontFamily: "inherit"
+    }
+  }, LEVEL_LABEL[lv])));
+}
+function AgendaHotel() {
+  useFonts();
+  const today = new Date();
+  const [weekStart, setWeekStart] = useState(mondayOf(today));
+  const [selected, setSelected] = useState(toISO(today));
+  const [tasksByDate, setTasksByDate] = useState({});
+  const [loadingDays, setLoadingDays] = useState({});
+  const [expanded, setExpanded] = useState({});
+  const [now, setNow] = useState(new Date());
+  const [saveError, setSaveError] = useState("");
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  const [reminderIndex, setReminderIndex] = useState({});
+  const [showRecurringPanel, setShowRecurringPanel] = useState(false);
+  const [view, setView] = useState("week");
+  const [backlog, setBacklog] = useState([]);
+  const [backlogLoaded, setBacklogLoaded] = useState(false);
+  const [nTitle, setNTitle] = useState("");
+  const [nNotes, setNNotes] = useState("");
+  const [nType, setNType] = useState("tarea");
+  const [nImportance, setNImportance] = useState("media");
+  const [nUrgency, setNUrgency] = useState("media");
+  const [sendingId, setSendingId] = useState(null);
+  const [sendDate, setSendDate] = useState("");
+  const [sendTime, setSendTime] = useState("");
+  const templatesRef = useRef(templates);
+  const reminderIndexRef = useRef(reminderIndex);
+  useEffect(() => {
+    templatesRef.current = templates;
+  }, [templates]);
+  useEffect(() => {
+    reminderIndexRef.current = reminderIndex;
+  }, [reminderIndex]);
+  const [formOpen, setFormOpen] = useState(false);
+  const [fTitle, setFTitle] = useState("");
+  const [fTime, setFTime] = useState("");
+  const [fType, setFType] = useState("tarea");
+  const [fPerson, setFPerson] = useState("");
+  const [fImportance, setFImportance] = useState("media");
+  const [fUrgency, setFUrgency] = useState("media");
+  const [fReminder, setFReminder] = useState(false);
+  const [fLead, setFLead] = useState("same");
+  const [fRepeat, setFRepeat] = useState("none");
+  const [fCarryOver, setFCarryOver] = useState(false);
+  const titleRef = useRef(null);
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await window.storage.get("agenda:recurring-templates");
+        setTemplates(r && r.value ? JSON.parse(r.value) : []);
+      } catch (e) {
+        setTemplates([]);
+      }
+      try {
+        const r2 = await window.storage.get("agenda:reminder-index");
+        setReminderIndex(r2 && r2.value ? JSON.parse(r2.value) : {});
+      } catch (e) {
+        setReminderIndex({});
+      }
+      try {
+        const r3 = await window.storage.get("agenda:backlog");
+        setBacklog(r3 && r3.value ? JSON.parse(r3.value) : []);
+      } catch (e) {
+        setBacklog([]);
+      }
+      setBacklogLoaded(true);
+      setTemplatesLoaded(true);
+    })();
+  }, []);
+  const persistTemplates = async list => {
+    setTemplates(list);
+    try {
+      await window.storage.set("agenda:recurring-templates", JSON.stringify(list));
+    } catch (e) {}
+  };
+  const persistReminderIndex = async map => {
+    setReminderIndex(map);
+    try {
+      await window.storage.set("agenda:reminder-index", JSON.stringify(map));
+    } catch (e) {}
+  };
+  const persistBacklog = async list => {
+    setBacklog(list);
+    try {
+      await window.storage.set("agenda:backlog", JSON.stringify(list));
+    } catch (e) {}
+  };
+  const weekDates = Array.from({
+    length: 7
+  }, (_, i) => addDays(weekStart, i));
+  const materializeForDay = async (iso, existingList, templatesList) => {
+    let list = existingList;
+    let changed = false;
+    const newIndexEntries = {};
+    for (const t of templatesList) {
+      const already = list.some(task => task.recurringId === t.id);
+      if (!already && isOccurrence(t, iso)) {
+        let carriedTopics = [];
+        if (t.type === "reunion") {
+          const prevISO = previousOccurrenceISO(t, iso);
+          if (prevISO) {
+            try {
+              const res = await window.storage.get(`agenda:${prevISO}`);
+              if (res && res.value) {
+                const prevList = JSON.parse(res.value);
+                const prevTask = prevList.find(pt => pt.recurringId === t.id);
+                if (prevTask && prevTask.topics) {
+                  carriedTopics = prevTask.topics.filter(tp => !tp.done).map(tp => ({
+                    id: uid(),
+                    text: tp.text,
+                    done: false,
+                    carried: true
+                  }));
+                }
+              }
+            } catch (e) {}
+          }
+        }
+        const task = {
+          id: uid(),
+          title: t.title,
+          time: t.time,
+          type: t.type,
+          person: t.person,
+          importance: t.importance,
+          urgency: t.urgency,
+          reminder: t.reminder,
+          repeat: t.repeat,
+          recurringId: t.id,
+          completed: false,
+          topics: t.type === "reunion" ? carriedTopics : undefined
+        };
+        list = [...list, task];
+        changed = true;
+        if (t.reminder && t.reminder.enabled) {
+          newIndexEntries[reminderKey(iso, task.id)] = {
+            taskId: task.id,
+            dayISO: iso,
+            time: task.time,
+            title: task.title,
+            person: task.person,
+            lead: t.reminder.lead,
+            recurringId: t.id
+          };
+        }
+      }
+    }
+    if (changed) list = [...list].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+    return {
+      list,
+      changed,
+      newIndexEntries
+    };
+  };
+  const materializeCarryOver = async iso => {
+    const todayISO = toISO(today);
+    if (iso > todayISO) return {
+      added: [],
+      newIndexEntries: {}
+    };
+    const prevISO = toISO(addDays(fromISO(iso), -1));
+    let prevList = [];
+    try {
+      const res = await window.storage.get(`agenda:${prevISO}`);
+      if (res && res.value) prevList = JSON.parse(res.value);
+    } catch (e) {
+      prevList = [];
+    }
+    const added = [];
+    const newIndexEntries = {};
+    prevList.filter(t => t.carryOver && !t.completed && !t.recurringId && !t.skipped).forEach(t => {
+      const chain = t.chainId || t.id;
+      const copy = {
+        ...t,
+        id: uid(),
+        chainId: chain,
+        carriedForward: true,
+        topics: t.topics ? t.topics.map(tp => ({
+          ...tp
+        })) : undefined
+      };
+      added.push(copy);
+      if (copy.reminder && copy.reminder.enabled) {
+        newIndexEntries[reminderKey(iso, copy.id)] = {
+          taskId: copy.id,
+          dayISO: iso,
+          time: copy.time,
+          title: copy.title,
+          person: copy.person,
+          lead: copy.reminder.lead
+        };
+      }
+    });
+    return {
+      added,
+      newIndexEntries
+    };
+  };
+  const loadDay = useCallback(async iso => {
+    setLoadingDays(p => ({
+      ...p,
+      [iso]: true
+    }));
+    let list = [];
+    try {
+      const res = await window.storage.get(`agenda:${iso}`);
+      if (res && res.value) list = JSON.parse(res.value);
+    } catch (e) {
+      list = [];
+    }
+    let {
+      list: finalList,
+      changed,
+      newIndexEntries
+    } = await materializeForDay(iso, list, templatesRef.current);
+    const existingChains = new Set(finalList.filter(t => !t.skipped).map(t => t.chainId || t.id));
+    const {
+      added: carried,
+      newIndexEntries: carriedIndexEntries
+    } = await materializeCarryOver(iso);
+    const newCarried = carried.filter(c => !existingChains.has(c.chainId));
+    if (newCarried.length) {
+      finalList = [...finalList, ...newCarried].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+      changed = true;
+      newIndexEntries = {
+        ...newIndexEntries,
+        ...carriedIndexEntries
+      };
+    }
+    if (changed) {
+      try {
+        await window.storage.set(`agenda:${iso}`, JSON.stringify(finalList));
+      } catch (e) {}
+      if (Object.keys(newIndexEntries).length) {
+        const merged = {
+          ...reminderIndexRef.current,
+          ...newIndexEntries
+        };
+        persistReminderIndex(merged);
+      }
+    }
+    setTasksByDate(p => ({
+      ...p,
+      [iso]: finalList
+    }));
+    setLoadingDays(p => ({
+      ...p,
+      [iso]: false
+    }));
+  }, []);
+  useEffect(() => {
+    if (!templatesLoaded) return;
+    weekDates.forEach(d => {
+      const iso = toISO(d);
+      if (tasksByDate[iso] === undefined) loadDay(iso);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart, templatesLoaded]);
+
+  // Re-materialize already-loaded days when a new recurring template is added
+  useEffect(() => {
+    if (!templatesLoaded) return;
+    (async () => {
+      for (const iso of Object.keys(tasksByDate)) {
+        const {
+          list,
+          changed,
+          newIndexEntries
+        } = await materializeForDay(iso, tasksByDate[iso], templates);
+        if (changed) {
+          setTasksByDate(p => ({
+            ...p,
+            [iso]: list
+          }));
+          window.storage.set(`agenda:${iso}`, JSON.stringify(list)).catch(() => {});
+          if (Object.keys(newIndexEntries).length) {
+            persistReminderIndex({
+              ...reminderIndexRef.current,
+              ...newIndexEntries
+            });
+          }
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templates]);
+  const persistDay = async (iso, list) => {
+    setTasksByDate(p => ({
+      ...p,
+      [iso]: list
+    }));
+    try {
+      const r = await window.storage.set(`agenda:${iso}`, JSON.stringify(list));
+      if (!r) setSaveError("No se pudo guardar el cambio. Probá de nuevo.");else setSaveError("");
+    } catch (e) {
+      setSaveError("No se pudo guardar el cambio. Probá de nuevo.");
+    }
+  };
+  const dayTasksRaw = tasksByDate[selected] || [];
+  const dayTasks = dayTasksRaw.filter(t => !t.skipped);
+  const addTask = async () => {
+    const title = fTitle.trim();
+    if (!title) return;
+    const reminder = {
+      enabled: fReminder,
+      lead: fLead
+    };
+    let task = {
+      id: uid(),
+      title,
+      time: fTime,
+      type: fType,
+      person: fType === "reunion" ? fPerson.trim() : "",
+      importance: fImportance,
+      urgency: fUrgency,
+      reminder,
+      repeat: fRepeat,
+      carryOver: fCarryOver,
+      completed: false,
+      topics: fType === "reunion" ? [] : undefined
+    };
+    if (fRepeat !== "none") {
+      const template = {
+        id: uid(),
+        title,
+        time: fTime,
+        type: fType,
+        person: task.person,
+        importance: fImportance,
+        urgency: fUrgency,
+        reminder,
+        repeat: fRepeat,
+        startDate: selected
+      };
+      task.recurringId = template.id;
+      await persistTemplates([...templates, template]);
+    }
+    const list = [...(tasksByDate[selected] || []), task].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+    persistDay(selected, list);
+    if (reminder.enabled) {
+      persistReminderIndex({
+        ...reminderIndexRef.current,
+        [reminderKey(selected, task.id)]: {
+          taskId: task.id,
+          dayISO: selected,
+          time: task.time,
+          title: task.title,
+          person: task.person,
+          lead: reminder.lead,
+          recurringId: task.recurringId
+        }
+      });
+    }
+    if (task.type === "reunion") setExpanded(p => ({
+      ...p,
+      [task.id]: true
+    }));
+    setFTitle("");
+    setFTime("");
+    setFPerson("");
+    setFImportance("media");
+    setFUrgency("media");
+    setFReminder(false);
+    setFLead("same");
+    setFRepeat("none");
+    setFType("tarea");
+    setFCarryOver(false);
+    setFormOpen(false);
+  };
+  const quickAddMeeting = async rec => {
+    const reminder = {
+      enabled: true,
+      lead: "same"
+    };
+    const title = `Reunión con ${rec.label}`;
+    const template = {
+      id: uid(),
+      title,
+      time: rec.time,
+      type: "reunion",
+      person: rec.person,
+      importance: "alta",
+      urgency: "media",
+      reminder,
+      repeat: "weekly",
+      startDate: selected
+    };
+    const task = {
+      id: uid(),
+      title,
+      time: rec.time,
+      type: "reunion",
+      person: rec.person,
+      importance: "alta",
+      urgency: "media",
+      reminder,
+      repeat: "weekly",
+      recurringId: template.id,
+      completed: false,
+      topics: []
+    };
+    await persistTemplates([...templates, template]);
+    const list = [...(tasksByDate[selected] || []), task].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+    persistDay(selected, list);
+    persistReminderIndex({
+      ...reminderIndexRef.current,
+      [reminderKey(selected, task.id)]: {
+        taskId: task.id,
+        dayISO: selected,
+        time: task.time,
+        title: task.title,
+        person: task.person,
+        lead: "same",
+        recurringId: template.id
+      }
+    });
+    setExpanded(p => ({
+      ...p,
+      [task.id]: true
+    }));
+  };
+  const removeReminderEntry = (dayISO, taskId) => {
+    const map = {
+      ...reminderIndexRef.current
+    };
+    delete map[reminderKey(dayISO, taskId)];
+    persistReminderIndex(map);
+  };
+  const toggleComplete = id => {
+    const list = dayTasksRaw.map(t => t.id === id ? {
+      ...t,
+      completed: !t.completed
+    } : t);
+    persistDay(selected, list);
+    const t = dayTasksRaw.find(x => x.id === id);
+    if (t && !t.completed) removeReminderEntry(selected, id);
+  };
+  const deleteTask = id => {
+    persistDay(selected, dayTasksRaw.filter(t => t.id !== id));
+    removeReminderEntry(selected, id);
+  };
+  const getOrLoadDayList = async iso => {
+    if (tasksByDate[iso] !== undefined) return tasksByDate[iso];
+    let list = [];
+    try {
+      const res = await window.storage.get(`agenda:${iso}`);
+      if (res && res.value) list = JSON.parse(res.value);
+    } catch (e) {
+      list = [];
+    }
+    const {
+      list: materialized
+    } = await materializeForDay(iso, list, templatesRef.current);
+    return materialized;
+  };
+  const addNote = () => {
+    const title = nTitle.trim();
+    if (!title) return;
+    const item = {
+      id: uid(),
+      title,
+      notes: nNotes.trim(),
+      type: nType,
+      importance: nImportance,
+      urgency: nUrgency,
+      createdAt: toISO(new Date())
+    };
+    persistBacklog([...backlog, item]);
+    setNTitle("");
+    setNNotes("");
+    setNType("tarea");
+    setNImportance("media");
+    setNUrgency("media");
+  };
+  const deleteNote = id => {
+    persistBacklog(backlog.filter(n => n.id !== id));
+  };
+  const updateNote = (id, patch) => {
+    persistBacklog(backlog.map(n => n.id === id ? {
+      ...n,
+      ...patch
+    } : n));
+  };
+  const sendNoteToAgenda = async (item, dateISO, time) => {
+    if (!dateISO) return;
+    const list = await getOrLoadDayList(dateISO);
+    const task = {
+      id: uid(),
+      title: item.title,
+      time: time || "",
+      type: item.type,
+      person: "",
+      importance: item.importance,
+      urgency: item.urgency,
+      reminder: {
+        enabled: false,
+        lead: "same"
+      },
+      repeat: "none",
+      carryOver: false,
+      completed: false,
+      topics: item.type === "reunion" ? [] : undefined,
+      notes: item.notes || undefined
+    };
+    const finalList = [...list, task].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+    setTasksByDate(p => ({
+      ...p,
+      [dateISO]: finalList
+    }));
+    try {
+      await window.storage.set(`agenda:${dateISO}`, JSON.stringify(finalList));
+    } catch (e) {}
+    persistBacklog(backlog.filter(n => n.id !== item.id));
+    setSendingId(null);
+    setView("week");
+    setSelected(dateISO);
+    if (toISO(mondayOf(fromISO(dateISO))) !== toISO(weekStart)) setWeekStart(mondayOf(fromISO(dateISO)));
+  };
+  const saveTaskEdit = async (id, patch, newDate) => {
+    const origTask = dayTasksRaw.find(t => t.id === id);
+    if (!origTask) return;
+    let finalPatch = {
+      ...patch
+    };
+    const targetDay = newDate && newDate !== selected ? newDate : selected;
+    if (patch.repeat && patch.repeat !== "none" && !origTask.recurringId) {
+      const template = {
+        id: uid(),
+        title: patch.title,
+        time: patch.time,
+        type: origTask.type,
+        person: patch.person,
+        importance: patch.importance,
+        urgency: patch.urgency,
+        reminder: patch.reminder,
+        repeat: patch.repeat,
+        startDate: targetDay
+      };
+      await persistTemplates([...templates, template]);
+      finalPatch.recurringId = template.id;
+    }
+    if (newDate && newDate !== selected) {
+      moveTask(id, finalPatch, newDate);
+    } else {
+      updateTask(id, finalPatch);
+    }
+  };
+  const updateTask = (id, patch) => {
+    const list = dayTasksRaw.map(t => t.id === id ? {
+      ...t,
+      ...patch
+    } : t);
+    persistDay(selected, list);
+    const updated = list.find(t => t.id === id);
+    if (updated && updated.reminder && updated.reminder.enabled) {
+      persistReminderIndex({
+        ...reminderIndexRef.current,
+        [reminderKey(selected, id)]: {
+          taskId: id,
+          dayISO: selected,
+          time: updated.time,
+          title: updated.title,
+          person: updated.person,
+          lead: updated.reminder.lead,
+          recurringId: updated.recurringId
+        }
+      });
+    } else {
+      removeReminderEntry(selected, id);
+    }
+  };
+  const moveTask = async (id, patch, newDateISO) => {
+    const origIso = selected;
+    const origTask = dayTasksRaw.find(t => t.id === id);
+    if (!origTask) return;
+    const updatedTask = {
+      ...origTask,
+      ...patch
+    };
+    if (!("recurringId" in patch)) updatedTask.recurringId = undefined;
+    if (!("repeat" in patch)) updatedTask.repeat = "none";
+    let newOrigList;
+    if (origTask.recurringId) {
+      newOrigList = dayTasksRaw.map(t => t.id === id ? {
+        id: t.id,
+        recurringId: t.recurringId,
+        skipped: true
+      } : t);
+    } else {
+      newOrigList = dayTasksRaw.filter(t => t.id !== id);
+    }
+    persistDay(origIso, newOrigList);
+    removeReminderEntry(origIso, id);
+    let targetList = tasksByDate[newDateISO];
+    if (targetList === undefined) {
+      try {
+        const res = await window.storage.get(`agenda:${newDateISO}`);
+        targetList = res && res.value ? JSON.parse(res.value) : [];
+      } catch (e) {
+        targetList = [];
+      }
+      const {
+        list: materialized
+      } = await materializeForDay(newDateISO, targetList, templatesRef.current);
+      targetList = materialized;
+    }
+    const finalTargetList = [...targetList, updatedTask].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+    setTasksByDate(p => ({
+      ...p,
+      [newDateISO]: finalTargetList
+    }));
+    try {
+      await window.storage.set(`agenda:${newDateISO}`, JSON.stringify(finalTargetList));
+    } catch (e) {}
+    if (updatedTask.reminder && updatedTask.reminder.enabled) {
+      persistReminderIndex({
+        ...reminderIndexRef.current,
+        [reminderKey(newDateISO, id)]: {
+          taskId: id,
+          dayISO: newDateISO,
+          time: updatedTask.time,
+          title: updatedTask.title,
+          person: updatedTask.person,
+          lead: updatedTask.reminder.lead
+        }
+      });
+    }
+    setSelected(newDateISO);
+    if (toISO(mondayOf(fromISO(newDateISO))) !== toISO(weekStart)) setWeekStart(mondayOf(fromISO(newDateISO)));
+  };
+  const deleteSeries = templateId => {
+    persistTemplates(templates.filter(t => t.id !== templateId));
+  };
+  const toggleExpand = id => setExpanded(p => ({
+    ...p,
+    [id]: !p[id]
+  }));
+  const addTopic = (taskId, text) => {
+    if (!text.trim()) return;
+    const list = dayTasksRaw.map(t => t.id === taskId ? {
+      ...t,
+      topics: [...(t.topics || []), {
+        id: uid(),
+        text: text.trim(),
+        done: false
+      }]
+    } : t);
+    persistDay(selected, list);
+  };
+  const toggleTopic = (taskId, topicId) => {
+    const list = dayTasksRaw.map(t => t.id === taskId ? {
+      ...t,
+      topics: t.topics.map(tp => tp.id === topicId ? {
+        ...tp,
+        done: !tp.done
+      } : tp)
+    } : t);
+    persistDay(selected, list);
+  };
+  const deleteTopic = (taskId, topicId) => {
+    const list = dayTasksRaw.map(t => t.id === taskId ? {
+      ...t,
+      topics: t.topics.filter(tp => tp.id !== topicId)
+    } : t);
+    persistDay(selected, list);
+  };
+  const dueNow = [];
+  Object.values(reminderIndex).forEach(e => {
+    const days = LEAD_DAYS[e.lead] ?? 0;
+    const alertDate = addDays(fromISO(e.dayISO), -days);
+    if (toISO(alertDate) !== toISO(today)) return;
+    const [h, m] = (e.time || "09:00").split(":").map(Number);
+    const target = new Date(today);
+    target.setHours(h, m, 0, 0);
+    const diffMin = (target - now) / 60000;
+    if (diffMin <= 60 && diffMin >= -30) dueNow.push({
+      ...e,
+      sameDay: days === 0
+    });
+  });
+  const weekRangeLabel = () => {
+    const first = weekDates[0],
+      last = weekDates[6];
+    if (first.getMonth() === last.getMonth()) return `${first.getDate()}–${last.getDate()} de ${MONTHS[first.getMonth()]} de ${first.getFullYear()}`;
+    return `${first.getDate()} ${MONTHS[first.getMonth()]} – ${last.getDate()} ${MONTHS[last.getMonth()]} de ${last.getFullYear()}`;
+  };
+  const selectedDateObj = fromISO(selected);
+  const isLoadingSelected = loadingDays[selected];
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Inter', sans-serif",
+      background: PARCHMENT,
+      minHeight: 480,
+      borderRadius: 14,
+      overflow: "hidden",
+      border: `1px solid ${HAIRLINE}`,
+      color: CHARCOAL
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: INK,
+      color: PAPER,
+      padding: "20px 22px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: HOTEL_LOGO,
+    alt: "Hotel Copahue",
+    style: {
+      height: 68,
+      width: "auto",
+      objectFit: "contain",
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontSize: 28,
+      fontWeight: 500,
+      letterSpacing: 0.2,
+      lineHeight: 1.2,
+      color: BRASS_LIGHT
+    }
+  }, "Agenda Coordinación Operativa")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      background: INK_LIGHT,
+      borderRadius: 8,
+      padding: 2,
+      marginRight: 2
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("week"),
+    style: {
+      background: view === "week" ? BRASS : "transparent",
+      color: view === "week" ? INK : "#C7CDD6",
+      border: "none",
+      borderRadius: 6,
+      fontSize: 12.5,
+      fontWeight: 500,
+      padding: "6px 11px",
+      cursor: "pointer"
+    }
+  }, "Semana"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("notes"),
+    style: {
+      background: view === "notes" ? BRASS : "transparent",
+      color: view === "notes" ? INK : "#C7CDD6",
+      border: "none",
+      borderRadius: 6,
+      fontSize: 12.5,
+      fontWeight: 500,
+      padding: "6px 11px",
+      cursor: "pointer"
+    }
+  }, "Notas varias", backlog.length > 0 ? ` (${backlog.length})` : "")), view === "week" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setWeekStart(addDays(weekStart, -7)),
+    style: {
+      background: "transparent",
+      border: `1px solid ${INK_LIGHT}`,
+      borderRadius: 8,
+      color: PAPER,
+      width: 30,
+      height: 30,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      cursor: "pointer"
+    },
+    "aria-label": "Semana anterior"
+  }, /*#__PURE__*/React.createElement(ChevronLeft, {
+    size: 16
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "#C7CDD6",
+      minWidth: 175,
+      textAlign: "center"
+    }
+  }, weekRangeLabel()), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setWeekStart(addDays(weekStart, 7)),
+    style: {
+      background: "transparent",
+      border: `1px solid ${INK_LIGHT}`,
+      borderRadius: 8,
+      color: PAPER,
+      width: 30,
+      height: 30,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      cursor: "pointer"
+    },
+    "aria-label": "Semana siguiente"
+  }, /*#__PURE__*/React.createElement(ChevronRight, {
+    size: 16
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setWeekStart(mondayOf(today));
+      setSelected(toISO(today));
+    },
+    style: {
+      background: BRASS,
+      border: "none",
+      borderRadius: 8,
+      color: INK,
+      fontSize: 13,
+      fontWeight: 500,
+      padding: "7px 12px",
+      cursor: "pointer"
+    }
+  }, "Hoy"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => downloadText("agenda-hotel-copahue.ics", buildICS(reminderIndex, templates)),
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      background: "transparent",
+      border: `1px solid ${INK_LIGHT}`,
+      borderRadius: 8,
+      color: PAPER,
+      fontSize: 12.5,
+      padding: "7px 11px",
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement(Download, {
+    size: 14
+  }), " Exportar recordatorios (.ics)"))))), view === "week" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "row",
+      flexWrap: "wrap",
+      background: "#E6E6E8",
+      borderBottom: `1px solid ${HAIRLINE}`,
+      width: "100%"
+    }
+  }, weekDates.map((d, i) => {
+    const iso = toISO(d);
+    const isSel = iso === selected;
+    const isToday = sameDate(d, today);
+    const list = (tasksByDate[iso] || []).filter(t => !t.skipped);
+    const total = list.length;
+    const hasMeeting = list.some(t => t.type === "reunion");
+    return /*#__PURE__*/React.createElement("button", {
+      key: iso,
+      onClick: () => setSelected(iso),
+      style: {
+        flex: "1 1 90px",
+        minWidth: 90,
+        padding: "10px 6px 12px",
+        background: isSel ? PARCHMENT : "transparent",
+        border: "none",
+        borderTop: isSel ? `3px solid ${BRASS}` : "3px solid transparent",
+        cursor: "pointer",
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: MUTED,
+        letterSpacing: 0.3
+      }
+    }, DAY_LABELS[i]), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Fraunces', serif",
+        fontSize: 18,
+        marginTop: 2,
+        color: isToday ? BRASS : CHARCOAL,
+        fontWeight: isToday ? 600 : 500
+      }
+    }, d.getDate()), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        gap: 5,
+        marginTop: 5,
+        minHeight: 16
+      }
+    }, total > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10.5,
+        fontWeight: 600,
+        color: "#fff",
+        background: BRASS,
+        borderRadius: 8,
+        padding: "1px 6px",
+        minWidth: 15,
+        lineHeight: "14px"
+      }
+    }, total), hasMeeting && /*#__PURE__*/React.createElement(Users, {
+      size: 10,
+      color: INK_LIGHT
+    })));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 280,
+      padding: "18px 22px 22px",
+      background: PARCHMENT
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontSize: 17
+    }
+  }, selectedDateObj.toLocaleDateString("es-AR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long"
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      fontSize: 10.5,
+      color: MUTED
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      fontWeight: 700,
+      color: "#fff",
+      background: MUTED,
+      borderRadius: 4,
+      padding: "1px 5px"
+    }
+  }, "I"), " importancia"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      fontWeight: 700,
+      color: "#fff",
+      background: MUTED,
+      borderRadius: 4,
+      padding: "1px 5px"
+    }
+  }, "U"), " urgencia"))), dueNow.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#FBEAE3",
+      border: `1px solid ${CLAY}30`,
+      borderRadius: 10,
+      padding: "9px 12px",
+      margin: "10px 0",
+      fontSize: 13,
+      color: "#7A3524"
+    }
+  }, dueNow.map(e => /*#__PURE__*/React.createElement("div", {
+    key: e.taskId,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "2px 0"
+    }
+  }, /*#__PURE__*/React.createElement(Bell, {
+    size: 13
+  }), e.sameDay ? `"${e.title}" es hoy a las ${e.time}.` : `"${e.title}" es el ${fromISO(e.dayISO).toLocaleDateString("es-AR", {
+    day: "numeric",
+    month: "short"
+  })} a las ${e.time} — recordatorio anticipado.`))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      borderTop: `1px solid ${HAIRLINE}`
+    }
+  }, isLoadingSelected ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      color: MUTED,
+      fontSize: 13,
+      padding: "20px 0"
+    }
+  }, /*#__PURE__*/React.createElement(Loader2, {
+    size: 14
+  }), " Cargando agenda del día…") : dayTasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: MUTED,
+      fontSize: 13,
+      padding: "22px 0"
+    }
+  }, "Sin tareas cargadas para este día todavía.") : dayTasks.map(t => /*#__PURE__*/React.createElement(TaskRow, {
+    key: t.id,
+    task: t,
+    dayISO: selected,
+    expanded: !!expanded[t.id],
+    onToggleExpand: () => toggleExpand(t.id),
+    onToggleComplete: () => toggleComplete(t.id),
+    onDelete: () => deleteTask(t.id),
+    onSave: patch => {
+      const {
+        newDate,
+        ...rest
+      } = patch;
+      saveTaskEdit(t.id, rest, newDate);
+    },
+    onAddTopic: text => addTopic(t.id, text),
+    onToggleTopic: topicId => toggleTopic(t.id, topicId),
+    onDeleteTopic: topicId => deleteTopic(t.id, topicId)
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginTop: 16
+    }
+  }, RECURRING_QUICK.map(r => /*#__PURE__*/React.createElement("button", {
+    key: r.label,
+    onClick: () => quickAddMeeting(r),
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      background: PAPER,
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 8,
+      padding: "6px 11px",
+      fontSize: 12.5,
+      color: INK_LIGHT,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement(Users, {
+    size: 13
+  }), " Reunión con ", r.label, " ", /*#__PURE__*/React.createElement(Repeat, {
+    size: 11,
+    color: MUTED
+  })))), templates.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowRecurringPanel(p => !p),
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      background: "transparent",
+      border: "none",
+      color: INK_LIGHT,
+      fontSize: 12.5,
+      cursor: "pointer",
+      padding: 0
+    }
+  }, showRecurringPanel ? /*#__PURE__*/React.createElement(ChevronDown, {
+    size: 14
+  }) : /*#__PURE__*/React.createElement(ChevronRight, {
+    size: 14
+  }), /*#__PURE__*/React.createElement(Repeat, {
+    size: 13
+  }), " Series recurrentes activas (", templates.length, ")"), showRecurringPanel && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      background: PAPER,
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 8,
+      padding: "8px 12px"
+    }
+  }, templates.map(t => /*#__PURE__*/React.createElement("div", {
+    key: t.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "6px 0",
+      borderBottom: `1px solid ${HAIRLINE}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: CHARCOAL
+    }
+  }, t.title, " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: MUTED
+    }
+  }, "· ", REPEAT_LABEL[t.repeat], " · desde ", fromISO(t.startDate).toLocaleDateString("es-AR", {
+    day: "numeric",
+    month: "short"
+  }))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => deleteSeries(t.id),
+    style: {
+      background: "transparent",
+      border: "none",
+      color: MUTED,
+      cursor: "pointer"
+    },
+    "aria-label": "Eliminar toda la serie"
+  }, /*#__PURE__*/React.createElement(Trash2, {
+    size: 13
+  })))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 16
+    }
+  }, !formOpen ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setFormOpen(true);
+      setTimeout(() => titleRef.current?.focus(), 0);
+    },
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      background: "transparent",
+      border: `1px dashed ${MUTED}`,
+      borderRadius: 8,
+      padding: "9px 14px",
+      fontSize: 13,
+      color: INK_LIGHT,
+      cursor: "pointer",
+      width: "100%",
+      justifyContent: "center"
+    }
+  }, /*#__PURE__*/React.createElement(Plus, {
+    size: 15
+  }), " Agregar tarea o reunión") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: PAPER,
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 10,
+      padding: 14
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    ref: titleRef,
+    value: fTitle,
+    onChange: e => setFTitle(e.target.value),
+    placeholder: "¿Qué hay que hacer?",
+    onKeyDown: e => {
+      if (e.key === "Enter") addTask();
+    },
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "8px 10px",
+      fontSize: 14,
+      marginBottom: 9,
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: 9
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "time",
+    value: fTime,
+    onChange: e => setFTime(e.target.value),
+    style: {
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "7px 8px",
+      fontSize: 13,
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("select", {
+    value: fType,
+    onChange: e => setFType(e.target.value),
+    style: {
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "7px 8px",
+      fontSize: 13,
+      fontFamily: "inherit"
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "tarea"
+  }, "Tarea"), /*#__PURE__*/React.createElement("option", {
+    value: "reunion"
+  }, "Reunión")), /*#__PURE__*/React.createElement("select", {
+    value: fRepeat,
+    onChange: e => setFRepeat(e.target.value),
+    style: {
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "7px 8px",
+      fontSize: 13,
+      fontFamily: "inherit"
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "none"
+  }, "No se repite"), /*#__PURE__*/React.createElement("option", {
+    value: "daily"
+  }, "Repetir todos los días"), /*#__PURE__*/React.createElement("option", {
+    value: "weekly"
+  }, "Repetir semanalmente"), /*#__PURE__*/React.createElement("option", {
+    value: "monthly"
+  }, "Repetir mensualmente")), fType === "reunion" && /*#__PURE__*/React.createElement("input", {
+    value: fPerson,
+    onChange: e => setFPerson(e.target.value),
+    placeholder: "Con quién (ej: Encargado de mantenimiento)",
+    style: {
+      flex: "1 1 200px",
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "7px 8px",
+      fontSize: 13,
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 13,
+      color: INK_LIGHT,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: fReminder,
+    onChange: e => setFReminder(e.target.checked)
+  }), "Recordatorio"), fReminder && /*#__PURE__*/React.createElement("select", {
+    value: fLead,
+    onChange: e => setFLead(e.target.value),
+    style: {
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "7px 8px",
+      fontSize: 13,
+      fontFamily: "inherit"
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "same"
+  }, "El mismo día"), /*#__PURE__*/React.createElement("option", {
+    value: "1d"
+  }, "1 día antes"), /*#__PURE__*/React.createElement("option", {
+    value: "2d"
+  }, "2 días antes"), /*#__PURE__*/React.createElement("option", {
+    value: "1w"
+  }, "1 semana antes")), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 13,
+      color: INK_LIGHT,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: fCarryOver,
+    onChange: e => setFCarryOver(e.target.checked)
+  }), "Si no se completa, pasarla al día siguiente")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 16,
+      flexWrap: "wrap",
+      marginBottom: 9
+    }
+  }, /*#__PURE__*/React.createElement(LevelPicker, {
+    label: "Importancia",
+    value: fImportance,
+    onChange: setFImportance
+  }), /*#__PURE__*/React.createElement(LevelPicker, {
+    label: "Urgencia",
+    value: fUrgency,
+    onChange: setFUrgency
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      justifyContent: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setFormOpen(false),
+    style: {
+      background: "transparent",
+      border: "none",
+      color: MUTED,
+      fontSize: 13,
+      cursor: "pointer",
+      padding: "7px 10px"
+    }
+  }, "Cancelar"), /*#__PURE__*/React.createElement("button", {
+    onClick: addTask,
+    style: {
+      background: INK,
+      color: PAPER,
+      border: "none",
+      borderRadius: 7,
+      fontSize: 13,
+      fontWeight: 500,
+      padding: "7px 14px",
+      cursor: "pointer"
+    }
+  }, "Agregar")))), saveError && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: CLAY,
+      fontSize: 12,
+      marginTop: 10
+    }
+  }, saveError))), view === "notes" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "18px 22px 22px",
+      background: PARCHMENT
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontSize: 17,
+      marginBottom: 4
+    }
+  }, "Notas y tareas varias"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: MUTED,
+      marginBottom: 14
+    }
+  }, "Cargá acá lo que todavía no tiene un día asignado. Cuando corresponda, mandalo a la fecha que quieras desde el botón \"Enviar a la agenda\"."), !backlogLoaded ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      color: MUTED,
+      fontSize: 13,
+      padding: "10px 0"
+    }
+  }, /*#__PURE__*/React.createElement(Loader2, {
+    size: 14
+  }), " Cargando notas…") : backlog.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: MUTED,
+      fontSize: 13,
+      padding: "10px 0 22px"
+    }
+  }, "No tenés notas cargadas todavía.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 18
+    }
+  }, backlog.map(item => /*#__PURE__*/React.createElement(NoteRow, {
+    key: item.id,
+    item: item,
+    onSave: patch => updateNote(item.id, patch),
+    onDelete: () => deleteNote(item.id),
+    isSending: sendingId === item.id,
+    sendDate: sendDate,
+    sendTime: sendTime,
+    onStartSend: () => {
+      setSendingId(item.id);
+      setSendDate(selected);
+      setSendTime("");
+    },
+    onCancelSend: () => setSendingId(null),
+    onSendDateChange: setSendDate,
+    onSendTimeChange: setSendTime,
+    onConfirmSend: () => sendNoteToAgenda(item, sendDate, sendTime)
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: PAPER,
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 10,
+      padding: 14
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: nTitle,
+    onChange: e => setNTitle(e.target.value),
+    placeholder: "¿Qué querés anotar?",
+    onKeyDown: e => {
+      if (e.key === "Enter") addNote();
+    },
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "8px 10px",
+      fontSize: 14,
+      marginBottom: 9,
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("textarea", {
+    value: nNotes,
+    onChange: e => setNNotes(e.target.value),
+    placeholder: "Detalle o notas (opcional)",
+    rows: 2,
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "8px 10px",
+      fontSize: 13,
+      marginBottom: 9,
+      fontFamily: "inherit",
+      resize: "vertical"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "center",
+      marginBottom: 9
+    }
+  }, /*#__PURE__*/React.createElement("select", {
+    value: nType,
+    onChange: e => setNType(e.target.value),
+    style: {
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "7px 8px",
+      fontSize: 13,
+      fontFamily: "inherit"
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "tarea"
+  }, "Tarea"), /*#__PURE__*/React.createElement("option", {
+    value: "reunion"
+  }, "Reunión")), /*#__PURE__*/React.createElement(LevelPicker, {
+    label: "Importancia",
+    value: nImportance,
+    onChange: setNImportance
+  }), /*#__PURE__*/React.createElement(LevelPicker, {
+    label: "Urgencia",
+    value: nUrgency,
+    onChange: setNUrgency
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: addNote,
+    style: {
+      background: INK,
+      color: PAPER,
+      border: "none",
+      borderRadius: 7,
+      fontSize: 13,
+      fontWeight: 500,
+      padding: "7px 14px",
+      cursor: "pointer"
+    }
+  }, "Agregar nota")))));
+}
+function TaskRow({
+  task,
+  dayISO,
+  expanded,
+  onToggleExpand,
+  onToggleComplete,
+  onDelete,
+  onSave,
+  onAddTopic,
+  onToggleTopic,
+  onDeleteTopic
+}) {
+  const [topicInput, setTopicInput] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [eTitle, setETitle] = useState(task.title);
+  const [eTime, setETime] = useState(task.time || "");
+  const [eDate, setEDate] = useState(dayISO);
+  const [ePerson, setEPerson] = useState(task.person || "");
+  const [eImportance, setEImportance] = useState(task.importance || task.priority || "media");
+  const [eUrgency, setEUrgency] = useState(task.urgency || "media");
+  const [eReminderOn, setEReminderOn] = useState(!!(task.reminder && task.reminder.enabled));
+  const [eLead, setELead] = useState(task.reminder && task.reminder.lead || "same");
+  const [eRepeat, setERepeat] = useState(task.repeat || "none");
+  const [eCarryOver, setECarryOver] = useState(!!task.carryOver);
+  const isReunion = task.type === "reunion";
+  const startEdit = () => {
+    setETitle(task.title);
+    setETime(task.time || "");
+    setEDate(dayISO);
+    setEPerson(task.person || "");
+    setEImportance(task.importance || task.priority || "media");
+    setEUrgency(task.urgency || "media");
+    setEReminderOn(!!(task.reminder && task.reminder.enabled));
+    setELead(task.reminder && task.reminder.lead || "same");
+    setERepeat(task.repeat || "none");
+    setECarryOver(!!task.carryOver);
+    setIsEditing(true);
+  };
+  const saveEdit = () => {
+    if (!eTitle.trim()) return;
+    onSave({
+      title: eTitle.trim(),
+      time: eTime,
+      person: isReunion ? ePerson.trim() : "",
+      importance: eImportance,
+      urgency: eUrgency,
+      reminder: {
+        enabled: eReminderOn,
+        lead: eLead
+      },
+      repeat: eRepeat,
+      carryOver: eCarryOver,
+      newDate: eDate
+    });
+    setIsEditing(false);
+  };
+  if (isEditing) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        borderBottom: `1px solid ${HAIRLINE}`,
+        padding: "11px 2px"
+      }
+    }, task.recurringId && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: MUTED,
+        marginBottom: 7
+      }
+    }, "Esta serie se repite — cambiar la fecha reprograma solo esta aparición; el resto de la serie sigue igual."), /*#__PURE__*/React.createElement("input", {
+      value: eTitle,
+      onChange: e => setETitle(e.target.value),
+      onKeyDown: e => {
+        if (e.key === "Enter") saveEdit();
+        if (e.key === "Escape") setIsEditing(false);
+      },
+      style: {
+        width: "100%",
+        boxSizing: "border-box",
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 7,
+        padding: "8px 10px",
+        fontSize: 14,
+        marginBottom: 9,
+        fontFamily: "inherit"
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 16,
+        flexWrap: "wrap",
+        marginBottom: 9
+      }
+    }, /*#__PURE__*/React.createElement(LevelPicker, {
+      label: "Importancia",
+      value: eImportance,
+      onChange: setEImportance
+    }), /*#__PURE__*/React.createElement(LevelPicker, {
+      label: "Urgencia",
+      value: eUrgency,
+      onChange: setEUrgency
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        marginBottom: 9
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      value: eDate,
+      onChange: e => setEDate(e.target.value),
+      style: {
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 7,
+        padding: "7px 8px",
+        fontSize: 13,
+        fontFamily: "inherit"
+      }
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "time",
+      value: eTime,
+      onChange: e => setETime(e.target.value),
+      style: {
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 7,
+        padding: "7px 8px",
+        fontSize: 13,
+        fontFamily: "inherit"
+      }
+    }), !task.recurringId && /*#__PURE__*/React.createElement("select", {
+      value: eRepeat,
+      onChange: e => setERepeat(e.target.value),
+      style: {
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 7,
+        padding: "7px 8px",
+        fontSize: 13,
+        fontFamily: "inherit"
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: "none"
+    }, "No se repite"), /*#__PURE__*/React.createElement("option", {
+      value: "daily"
+    }, "Repetir todos los días"), /*#__PURE__*/React.createElement("option", {
+      value: "weekly"
+    }, "Repetir semanalmente"), /*#__PURE__*/React.createElement("option", {
+      value: "monthly"
+    }, "Repetir mensualmente")), isReunion && /*#__PURE__*/React.createElement("input", {
+      value: ePerson,
+      onChange: e => setEPerson(e.target.value),
+      placeholder: "Con quién",
+      style: {
+        flex: "1 1 180px",
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 7,
+        padding: "7px 8px",
+        fontSize: 13,
+        fontFamily: "inherit"
+      }
+    }), /*#__PURE__*/React.createElement("label", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 13,
+        color: INK_LIGHT,
+        cursor: "pointer"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: eReminderOn,
+      onChange: e => setEReminderOn(e.target.checked)
+    }), "Recordatorio"), eReminderOn && /*#__PURE__*/React.createElement("select", {
+      value: eLead,
+      onChange: e => setELead(e.target.value),
+      style: {
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 7,
+        padding: "7px 8px",
+        fontSize: 13,
+        fontFamily: "inherit"
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: "same"
+    }, "El mismo día"), /*#__PURE__*/React.createElement("option", {
+      value: "1d"
+    }, "1 día antes"), /*#__PURE__*/React.createElement("option", {
+      value: "2d"
+    }, "2 días antes"), /*#__PURE__*/React.createElement("option", {
+      value: "1w"
+    }, "1 semana antes")), !task.recurringId && /*#__PURE__*/React.createElement("label", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 13,
+        color: INK_LIGHT,
+        cursor: "pointer"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: eCarryOver,
+      onChange: e => setECarryOver(e.target.checked)
+    }), "Si no se completa, pasarla al día siguiente")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        justifyContent: "flex-end"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setIsEditing(false),
+      style: {
+        background: "transparent",
+        border: "none",
+        color: MUTED,
+        fontSize: 13,
+        cursor: "pointer",
+        padding: "7px 10px"
+      }
+    }, "Cancelar"), /*#__PURE__*/React.createElement("button", {
+      onClick: saveEdit,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        background: INK,
+        color: PAPER,
+        border: "none",
+        borderRadius: 7,
+        fontSize: 13,
+        fontWeight: 500,
+        padding: "7px 14px",
+        cursor: "pointer"
+      }
+    }, /*#__PURE__*/React.createElement(Save, {
+      size: 13
+    }), " Guardar")));
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderBottom: `1px solid ${HAIRLINE}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "flex-start",
+      gap: 10,
+      padding: "11px 2px"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onToggleComplete,
+    "aria-label": task.completed ? "Marcar como pendiente" : "Marcar como hecho",
+    style: {
+      marginTop: 2,
+      width: 18,
+      height: 18,
+      borderRadius: "50%",
+      flexShrink: 0,
+      border: `1.5px solid ${task.completed ? SAGE : MUTED}`,
+      background: task.completed ? SAGE : "transparent",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      cursor: "pointer"
+    }
+  }, task.completed && /*#__PURE__*/React.createElement(Check, {
+    size: 11,
+    color: "#fff"
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 44,
+      fontSize: 12.5,
+      color: MUTED,
+      marginTop: 2,
+      flexShrink: 0
+    }
+  }, task.time || "—"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 7,
+      flexWrap: "wrap"
+    }
+  }, isReunion && /*#__PURE__*/React.createElement(Users, {
+    size: 13,
+    color: "#5A5A5E"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      textDecoration: task.completed ? "line-through" : "none",
+      color: task.completed ? MUTED : CHARCOAL
+    }
+  }, task.title), task.reminder && task.reminder.enabled && /*#__PURE__*/React.createElement(Bell, {
+    size: 12,
+    color: BRASS
+  }), task.repeat && task.repeat !== "none" && /*#__PURE__*/React.createElement(Repeat, {
+    size: 12,
+    color: INK_LIGHT
+  }), task.carryOver && /*#__PURE__*/React.createElement(ArrowRight, {
+    size: 12,
+    color: SAGE,
+    title: "Si no se completa, pasa al día siguiente"
+  }), /*#__PURE__*/React.createElement("span", {
+    title: `Importancia: ${LEVEL_LABEL[task.importance || task.priority || "media"]}`,
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      color: "#fff",
+      background: LEVEL_COLOR[task.importance || task.priority || "media"],
+      borderRadius: 4,
+      padding: "2px 6px",
+      letterSpacing: 0.2
+    }
+  }, "I"), /*#__PURE__*/React.createElement("span", {
+    title: `Urgencia: ${LEVEL_LABEL[task.urgency || "media"]}`,
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      color: "#fff",
+      background: LEVEL_COLOR[task.urgency || "media"],
+      borderRadius: 4,
+      padding: "2px 6px",
+      letterSpacing: 0.2
+    }
+  }, "U")), task.person && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: MUTED,
+      marginTop: 2
+    }
+  }, task.person), task.notes && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: MUTED,
+      marginTop: 2,
+      fontStyle: "italic"
+    }
+  }, task.notes), task.carriedForward && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: MUTED,
+      marginTop: 2
+    }
+  }, "Arrastrada del día anterior")), isReunion && /*#__PURE__*/React.createElement("button", {
+    onClick: onToggleExpand,
+    "aria-label": "Ver temario",
+    style: {
+      background: "transparent",
+      border: "none",
+      cursor: "pointer",
+      color: INK_LIGHT,
+      marginTop: 1
+    }
+  }, expanded ? /*#__PURE__*/React.createElement(ChevronDown, {
+    size: 16
+  }) : /*#__PURE__*/React.createElement(ChevronRight, {
+    size: 16
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: startEdit,
+    "aria-label": "Editar",
+    style: {
+      background: "transparent",
+      border: "none",
+      cursor: "pointer",
+      color: MUTED,
+      marginTop: 1
+    }
+  }, /*#__PURE__*/React.createElement(Pencil, {
+    size: 13
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: onDelete,
+    "aria-label": "Eliminar",
+    style: {
+      background: "transparent",
+      border: "none",
+      cursor: "pointer",
+      color: MUTED,
+      marginTop: 1
+    }
+  }, /*#__PURE__*/React.createElement(Trash2, {
+    size: 14
+  }))), isReunion && expanded && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#EBEBED",
+      borderRadius: 8,
+      padding: "10px 12px",
+      margin: "0 2px 12px 60px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: MUTED,
+      marginBottom: 7
+    }
+  }, "Temas a tratar"), (task.topics || []).length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: MUTED,
+      marginBottom: 8
+    }
+  }, "Todavía no cargaste temas para esta reunión."), (task.topics || []).map(tp => /*#__PURE__*/React.createElement("div", {
+    key: tp.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "4px 0"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => onToggleTopic(tp.id),
+    style: {
+      width: 14,
+      height: 14,
+      borderRadius: 4,
+      border: `1.5px solid ${tp.done ? SAGE : MUTED}`,
+      background: tp.done ? SAGE : "transparent",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      cursor: "pointer",
+      flexShrink: 0
+    }
+  }, tp.done && /*#__PURE__*/React.createElement(Check, {
+    size: 9,
+    color: "#fff"
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      flex: 1,
+      textDecoration: tp.done ? "line-through" : "none",
+      color: tp.done ? MUTED : CHARCOAL
+    }
+  }, tp.text, tp.carried && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10.5,
+      color: MUTED,
+      marginLeft: 6
+    }
+  }, "· pendiente de la reunión anterior")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onDeleteTopic(tp.id),
+    style: {
+      background: "transparent",
+      border: "none",
+      cursor: "pointer",
+      color: MUTED
+    },
+    "aria-label": "Quitar tema"
+  }, /*#__PURE__*/React.createElement(X, {
+    size: 12
+  })))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: topicInput,
+    onChange: e => setTopicInput(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        onAddTopic(topicInput);
+        setTopicInput("");
+      }
+    },
+    placeholder: "Agregar tema para tratar…",
+    style: {
+      flex: 1,
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 6,
+      padding: "6px 9px",
+      fontSize: 12.5,
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      onAddTopic(topicInput);
+      setTopicInput("");
+    },
+    style: {
+      background: INK,
+      color: PAPER,
+      border: "none",
+      borderRadius: 6,
+      padding: "6px 10px",
+      fontSize: 12.5,
+      cursor: "pointer"
+    }
+  }, "Agregar"))));
+}
+function NoteRow({
+  item,
+  onSave,
+  onDelete,
+  isSending,
+  sendDate,
+  sendTime,
+  onStartSend,
+  onCancelSend,
+  onSendDateChange,
+  onSendTimeChange,
+  onConfirmSend
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [eTitle, setETitle] = useState(item.title);
+  const [eNotes, setENotes] = useState(item.notes || "");
+  const [eType, setEType] = useState(item.type);
+  const [eImportance, setEImportance] = useState(item.importance);
+  const [eUrgency, setEUrgency] = useState(item.urgency);
+  const startEdit = () => {
+    setETitle(item.title);
+    setENotes(item.notes || "");
+    setEType(item.type);
+    setEImportance(item.importance);
+    setEUrgency(item.urgency);
+    setIsEditing(true);
+  };
+  const saveEdit = () => {
+    if (!eTitle.trim()) return;
+    onSave({
+      title: eTitle.trim(),
+      notes: eNotes.trim(),
+      type: eType,
+      importance: eImportance,
+      urgency: eUrgency
+    });
+    setIsEditing(false);
+  };
+  if (isEditing) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: PAPER,
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 10,
+        padding: "12px 14px",
+        marginBottom: 10
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      value: eTitle,
+      onChange: e => setETitle(e.target.value),
+      onKeyDown: e => {
+        if (e.key === "Enter") saveEdit();
+        if (e.key === "Escape") setIsEditing(false);
+      },
+      style: {
+        width: "100%",
+        boxSizing: "border-box",
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 7,
+        padding: "8px 10px",
+        fontSize: 14,
+        marginBottom: 9,
+        fontFamily: "inherit"
+      }
+    }), /*#__PURE__*/React.createElement("textarea", {
+      value: eNotes,
+      onChange: e => setENotes(e.target.value),
+      rows: 2,
+      placeholder: "Detalle o notas (opcional)",
+      style: {
+        width: "100%",
+        boxSizing: "border-box",
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 7,
+        padding: "8px 10px",
+        fontSize: 13,
+        marginBottom: 9,
+        fontFamily: "inherit",
+        resize: "vertical"
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        alignItems: "center",
+        marginBottom: 9
+      }
+    }, /*#__PURE__*/React.createElement("select", {
+      value: eType,
+      onChange: e => setEType(e.target.value),
+      style: {
+        border: `1px solid ${HAIRLINE}`,
+        borderRadius: 7,
+        padding: "7px 8px",
+        fontSize: 13,
+        fontFamily: "inherit"
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: "tarea"
+    }, "Tarea"), /*#__PURE__*/React.createElement("option", {
+      value: "reunion"
+    }, "Reunión")), /*#__PURE__*/React.createElement(LevelPicker, {
+      label: "Importancia",
+      value: eImportance,
+      onChange: setEImportance
+    }), /*#__PURE__*/React.createElement(LevelPicker, {
+      label: "Urgencia",
+      value: eUrgency,
+      onChange: setEUrgency
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        justifyContent: "flex-end"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setIsEditing(false),
+      style: {
+        background: "transparent",
+        border: "none",
+        color: MUTED,
+        fontSize: 13,
+        cursor: "pointer",
+        padding: "7px 10px"
+      }
+    }, "Cancelar"), /*#__PURE__*/React.createElement("button", {
+      onClick: saveEdit,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        background: INK,
+        color: PAPER,
+        border: "none",
+        borderRadius: 7,
+        fontSize: 13,
+        fontWeight: 500,
+        padding: "7px 14px",
+        cursor: "pointer"
+      }
+    }, /*#__PURE__*/React.createElement(Save, {
+      size: 13
+    }), " Guardar")));
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: PAPER,
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 10,
+      padding: "12px 14px",
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 7,
+      flexWrap: "wrap"
+    }
+  }, item.type === "reunion" && /*#__PURE__*/React.createElement(Users, {
+    size: 13,
+    color: "#5A5A5E"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14
+    }
+  }, item.title), /*#__PURE__*/React.createElement("span", {
+    title: `Importancia: ${LEVEL_LABEL[item.importance]}`,
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      color: "#fff",
+      background: LEVEL_COLOR[item.importance],
+      borderRadius: 4,
+      padding: "2px 6px",
+      letterSpacing: 0.2
+    }
+  }, "I"), /*#__PURE__*/React.createElement("span", {
+    title: `Urgencia: ${LEVEL_LABEL[item.urgency]}`,
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      color: "#fff",
+      background: LEVEL_COLOR[item.urgency],
+      borderRadius: 4,
+      padding: "2px 6px",
+      letterSpacing: 0.2
+    }
+  }, "U")), item.notes && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: MUTED,
+      marginTop: 4
+    }
+  }, item.notes)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 4,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: startEdit,
+    "aria-label": "Editar nota",
+    style: {
+      background: "transparent",
+      border: "none",
+      color: MUTED,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement(Pencil, {
+    size: 13
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: onDelete,
+    "aria-label": "Eliminar nota",
+    style: {
+      background: "transparent",
+      border: "none",
+      color: MUTED,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement(Trash2, {
+    size: 14
+  })))), isSending ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "center",
+      marginTop: 10,
+      paddingTop: 10,
+      borderTop: `1px solid ${HAIRLINE}`
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: sendDate,
+    onChange: e => onSendDateChange(e.target.value),
+    style: {
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "6px 8px",
+      fontSize: 12.5,
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "time",
+    value: sendTime,
+    onChange: e => onSendTimeChange(e.target.value),
+    style: {
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      padding: "6px 8px",
+      fontSize: 12.5,
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: onConfirmSend,
+    disabled: !sendDate,
+    style: {
+      background: sendDate ? INK : HAIRLINE,
+      color: sendDate ? PAPER : MUTED,
+      border: "none",
+      borderRadius: 7,
+      fontSize: 12.5,
+      fontWeight: 500,
+      padding: "6px 12px",
+      cursor: sendDate ? "pointer" : "default"
+    }
+  }, "Confirmar"), /*#__PURE__*/React.createElement("button", {
+    onClick: onCancelSend,
+    style: {
+      background: "transparent",
+      border: "none",
+      color: MUTED,
+      fontSize: 12.5,
+      cursor: "pointer"
+    }
+  }, "Cancelar")) : /*#__PURE__*/React.createElement("button", {
+    onClick: onStartSend,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      background: "transparent",
+      border: `1px solid ${HAIRLINE}`,
+      borderRadius: 7,
+      color: INK_LIGHT,
+      fontSize: 12.5,
+      padding: "6px 11px",
+      marginTop: 10,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement(CalendarDays, {
+    size: 13
+  }), " Enviar a la agenda"));
+}
+const rootEl = document.getElementById("root");
+const root = ReactDOM.createRoot(rootEl);
+root.render(/*#__PURE__*/React.createElement(AgendaHotel, null));
+</script>
+</body>
+</html>
