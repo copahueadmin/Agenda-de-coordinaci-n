@@ -114,11 +114,6 @@
   var SKY = "#4F7396";
   var DAY_LABELS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
   var MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-  var RECURRING_QUICK = [
-    { label: "Mantenimiento", person: "Encargado de mantenimiento", time: "10:00" },
-    { label: "Gerencia", person: "Gerente", time: "09:00" },
-    { label: "RRHH", person: "Recursos Humanos", time: "11:30" }
-  ];
   var LEAD_DAYS = { same: 0, "1d": 1, "2d": 2, "1w": 7 };
   var LEAD_LABEL = { same: "El mismo día", "1d": "1 día antes", "2d": "2 días antes", "1w": "1 semana antes" };
   var REPEAT_OPTIONS = [
@@ -579,23 +574,102 @@
     } catch (e) {
     }
   }
-  function beep() {
+  var ALARM_TONES = [
+    { id: "campanita", label: "Campanita", level: "Suave" },
+    { id: "gotas", label: "Gotas", level: "Suave" },
+    { id: "marimba", label: "Marimba", level: "Suave" },
+    { id: "arpa", label: "Arpa", level: "Suave" },
+    { id: "brisa", label: "Brisa", level: "Suave" },
+    { id: "clasico", label: "Clásico (el actual)", level: "Medio" },
+    { id: "dingdong", label: "Ding-dong", level: "Medio" },
+    { id: "carillon", label: "Carillón", level: "Medio" },
+    { id: "timbre", label: "Timbre", level: "Medio" },
+    { id: "despertador", label: "Despertador", level: "Fuerte" },
+    { id: "sirena", label: "Sirena", level: "Fuerte" },
+    { id: "emergencia", label: "Emergencia", level: "Fuerte" },
+    { id: "bocina", label: "Bocina", level: "Fuerte" }
+  ];
+  var ALARM_VOLUMES = [
+    ["bajo", "Bajo", 0.35],
+    ["medio", "Medio", 0.7],
+    ["alto", "Alto", 1]
+  ];
+  function note(t0, off, freq, dur, o = {}) {
+    const ctx = audioCtx;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = o.type || "sine";
+    const t = t0 + off;
+    osc.frequency.setValueAtTime(freq, t);
+    if (o.to) osc.frequency.linearRampToValueAtTime(o.to, t + dur);
+    const peak = (o.gain || 0.3) * (o.vol == null ? 1 : o.vol);
+    const atk = o.attack || 0.01;
+    g.gain.setValueAtTime(1e-4, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(peak, 2e-4), t + atk);
+    if (o.hold) g.gain.setValueAtTime(Math.max(peak, 2e-4), t + dur - 0.02);
+    g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  }
+  function playTone(id = "clasico", volume = "medio") {
     try {
       unlockAudio();
       if (!audioCtx) return;
-      const t0 = audioCtx.currentTime;
-      [0, 0.22, 0.44].forEach((off, i) => {
-        const o = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        o.type = "sine";
-        o.frequency.value = i === 2 ? 1175 : 880;
-        g.gain.setValueAtTime(1e-4, t0 + off);
-        g.gain.exponentialRampToValueAtTime(0.35, t0 + off + 0.02);
-        g.gain.exponentialRampToValueAtTime(1e-4, t0 + off + 0.18);
-        o.connect(g).connect(audioCtx.destination);
-        o.start(t0 + off);
-        o.stop(t0 + off + 0.2);
-      });
+      const v = (ALARM_VOLUMES.find((x) => x[0] === volume) || ALARM_VOLUMES[1])[2];
+      const t0 = audioCtx.currentTime + 0.02;
+      const n = (off, f, d, o = {}) => note(t0, off, f, d, { ...o, vol: v * (o.vol || 1) });
+      switch (id) {
+        case "campanita":
+          n(0, 1318.5, 1.2, { gain: 0.22 });
+          n(0, 2637, 0.6, { gain: 0.06 });
+          n(0.45, 1568, 1.1, { gain: 0.18 });
+          break;
+        case "gotas":
+          [0, 0.18, 0.36, 0.6].forEach((o, i) => n(o, [1400, 1150, 1600, 1e3][i], 0.14, { gain: 0.22, to: [900, 800, 1e3, 700][i] }));
+          break;
+        case "marimba":
+          [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => n(i * 0.16, f, 0.45, { type: "triangle", gain: 0.3 }));
+          break;
+        case "arpa":
+          [392, 493.88, 587.33, 739.99, 880].forEach((f, i) => n(i * 0.11, f, 0.9, { type: "triangle", gain: 0.2 }));
+          break;
+        case "brisa":
+          [440, 554.37, 659.25].forEach((f) => n(0, f, 1.6, { gain: 0.12, attack: 0.5 }));
+          break;
+        case "dingdong":
+          n(0, 659.25, 0.7, { gain: 0.35 });
+          n(0.55, 523.25, 1, { gain: 0.35 });
+          break;
+        case "carillon":
+          [783.99, 659.25, 698.46, 523.25].forEach((f, i) => {
+            n(i * 0.35, f, 0.9, { gain: 0.25 });
+            n(i * 0.35, f * 2.01, 0.5, { gain: 0.06 });
+          });
+          break;
+        case "timbre":
+          [0, 0.15, 0.3].forEach((o) => n(o, 1046.5, 0.1, { type: "square", gain: 0.12, hold: true }));
+          break;
+        case "despertador":
+          for (let i = 0; i < 8; i++) n(i * 0.12 + (i >= 4 ? 0.25 : 0), 1e3, 0.07, { type: "square", gain: 0.2, hold: true });
+          break;
+        case "sirena":
+          n(0, 600, 0.8, { type: "sawtooth", gain: 0.16, to: 1300, hold: true });
+          n(0.8, 1300, 0.8, { type: "sawtooth", gain: 0.16, to: 600, hold: true });
+          break;
+        case "emergencia":
+          for (let i = 0; i < 8; i++) n(i * 0.2, i % 2 ? 660 : 990, 0.19, { type: "square", gain: 0.2, hold: true });
+          break;
+        case "bocina":
+          [0, 0.55].forEach((o) => {
+            n(o, 233, 0.4, { type: "sawtooth", gain: 0.22, hold: true });
+            n(o, 311, 0.4, { type: "sawtooth", gain: 0.14, hold: true });
+          });
+          break;
+        case "clasico":
+        default:
+          [0, 0.22, 0.44].forEach((off, i) => n(off, i === 2 ? 1175 : 880, 0.18, { gain: 0.35, attack: 0.02 }));
+      }
     } catch (e) {
     }
   }
@@ -1629,7 +1703,7 @@
       });
     };
     const destBtn = (id, label) => /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setDest(id), style: { fontSize: 12.5, padding: "5px 11px", borderRadius: 7, border: "none", background: dest === id ? INK : "transparent", color: dest === id ? PAPER : INK_LIGHT, cursor: "pointer", fontFamily: "inherit" } }, label);
-    return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, allowNotes && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: "#DCDCE1", borderRadius: 9, padding: 2 } }, destBtn("day", `Agendar el ${shortDate(dateISO)}`), destBtn("notes", "Guardar en Notas (sin fecha)"))), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, allowNotes && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: "#DCDCE1", borderRadius: 9, padding: 2 } }, destBtn("day", "Agendar en una fecha"), destBtn("notes", "Guardar en Notas (sin fecha)"))), /* @__PURE__ */ React.createElement(
       "input",
       {
         ref,
@@ -2061,18 +2135,18 @@
       if (e.key === "Escape" && onCancel) onCancel();
     }, placeholder: "¿Qué querés anotar?", style: inputStyle }), /* @__PURE__ */ React.createElement("textarea", { value: notes, onChange: (e) => setNotes(e.target.value), rows: 2, placeholder: "Detalle o notas (opcional)", style: { ...inputStyle, resize: "vertical" } }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("select", { value: type, onChange: (e) => setType(e.target.value), style: selectStyle }, TYPES.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l))), /* @__PURE__ */ React.createElement(LevelPicker, { label: "Importancia", value: importance, onChange: setImportance }), /* @__PURE__ */ React.createElement(LevelPicker, { label: "Urgencia", value: urgency, onChange: setUrgency })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" } }, onCancel && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onCancel, style: btnGhost }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: submit, style: { ...btnPrimary, opacity: title.trim() ? 1 : 0.5 } }, initial ? /* @__PURE__ */ React.createElement(Save, { size: 14 }) : /* @__PURE__ */ React.createElement(Plus, { size: 14 }), " ", submitLabel)));
   }
-  function NoteRow({ note, columns, onUpdate, onDelete, onSendToAgenda, onSendToBoard }) {
+  function NoteRow({ note: note2, columns, onUpdate, onDelete, onSendToAgenda, onSendToBoard }) {
     const [editing, setEditing] = useState4(false);
     const [sending, setSending] = useState4(null);
     const [date, setDate] = useState4(toISO(/* @__PURE__ */ new Date()));
     const [time, setTime] = useState4("");
     const [colId, setColId] = useState4(columns[0] ? columns[0].id : "");
     if (editing)
-      return /* @__PURE__ */ React.createElement("div", { style: { background: PAPER, border: `1px solid ${BRASS}`, borderRadius: 10, padding: 12, marginTop: 8 } }, /* @__PURE__ */ React.createElement(NoteForm, { initial: note, submitLabel: "Guardar", onCancel: () => setEditing(false), onSave: (v) => {
+      return /* @__PURE__ */ React.createElement("div", { style: { background: PAPER, border: `1px solid ${BRASS}`, borderRadius: 10, padding: 12, marginTop: 8 } }, /* @__PURE__ */ React.createElement(NoteForm, { initial: note2, submitLabel: "Guardar", onCancel: () => setEditing(false), onSave: (v) => {
         onUpdate(v);
         setEditing(false);
       } }));
-    return /* @__PURE__ */ React.createElement("div", { style: { background: PAPER, border: `1px solid ${HAIRLINE}`, borderLeft: `4px solid ${TYPE_COLOR[note.type] || INK_LIGHT}`, borderRadius: 10, padding: "10px 12px", marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, color: CHARCOAL, wordBreak: "break-word" } }, note.title), note.type !== "tarea" && /* @__PURE__ */ React.createElement("span", { style: chip(TYPE_COLOR[note.type]) }, /* @__PURE__ */ React.createElement(TypeIcon, { type: note.type, size: 10, color: "#fff" }), " ", TYPE_LABEL[note.type]), /* @__PURE__ */ React.createElement("span", { style: chip(LEVEL_COLOR[note.importance]) }, "I"), /* @__PURE__ */ React.createElement("span", { style: chip(LEVEL_COLOR[note.urgency]) }, "U")), note.notes && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: INK_LIGHT, marginTop: 3, whiteSpace: "pre-wrap" } }, note.notes), note.createdAt && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: MUTED, marginTop: 4 } }, "Cargada el ", (/* @__PURE__ */ new Date(note.createdAt + "T00:00")).toLocaleDateString("es-AR"))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setEditing(true), style: iconBtn, "aria-label": "Editar nota" }, /* @__PURE__ */ React.createElement(Pencil, { size: 14 })), /* @__PURE__ */ React.createElement(ConfirmButton, { onConfirm: onDelete, title: "Eliminar nota" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))), sending === "agenda" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: inputStyle }), /* @__PURE__ */ React.createElement("input", { type: "time", value: time, onChange: (e) => setTime(e.target.value), style: inputStyle }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => date && onSendToAgenda(date, time), style: { ...btnPrimary, padding: "6px 11px" } }, "Confirmar"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSending(null), style: btnGhost }, "Cancelar")) : sending === "board" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 } }, /* @__PURE__ */ React.createElement("select", { value: colId, onChange: (e) => setColId(e.target.value), style: selectStyle }, columns.map((c) => /* @__PURE__ */ React.createElement("option", { key: c.id, value: c.id }, c.name))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => colId && onSendToBoard(colId), style: { ...btnPrimary, padding: "6px 11px" } }, "Confirmar"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSending(null), style: btnGhost }, "Cancelar")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSending("agenda"), style: { ...btnGhost, padding: "5px 10px", fontSize: 12.5 } }, /* @__PURE__ */ React.createElement(CalendarDays, { size: 13 }), " Enviar a la agenda"), columns.length > 0 && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSending("board"), style: { ...btnGhost, padding: "5px 10px", fontSize: 12.5 } }, /* @__PURE__ */ React.createElement(Columns, { size: 13 }), " Enviar al tablero")));
+    return /* @__PURE__ */ React.createElement("div", { style: { background: PAPER, border: `1px solid ${HAIRLINE}`, borderLeft: `4px solid ${TYPE_COLOR[note2.type] || INK_LIGHT}`, borderRadius: 10, padding: "10px 12px", marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, color: CHARCOAL, wordBreak: "break-word" } }, note2.title), note2.type !== "tarea" && /* @__PURE__ */ React.createElement("span", { style: chip(TYPE_COLOR[note2.type]) }, /* @__PURE__ */ React.createElement(TypeIcon, { type: note2.type, size: 10, color: "#fff" }), " ", TYPE_LABEL[note2.type]), /* @__PURE__ */ React.createElement("span", { style: chip(LEVEL_COLOR[note2.importance]) }, "I"), /* @__PURE__ */ React.createElement("span", { style: chip(LEVEL_COLOR[note2.urgency]) }, "U")), note2.notes && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: INK_LIGHT, marginTop: 3, whiteSpace: "pre-wrap" } }, note2.notes), note2.createdAt && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: MUTED, marginTop: 4 } }, "Cargada el ", (/* @__PURE__ */ new Date(note2.createdAt + "T00:00")).toLocaleDateString("es-AR"))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setEditing(true), style: iconBtn, "aria-label": "Editar nota" }, /* @__PURE__ */ React.createElement(Pencil, { size: 14 })), /* @__PURE__ */ React.createElement(ConfirmButton, { onConfirm: onDelete, title: "Eliminar nota" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))), sending === "agenda" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), style: inputStyle }), /* @__PURE__ */ React.createElement("input", { type: "time", value: time, onChange: (e) => setTime(e.target.value), style: inputStyle }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => date && onSendToAgenda(date, time), style: { ...btnPrimary, padding: "6px 11px" } }, "Confirmar"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSending(null), style: btnGhost }, "Cancelar")) : sending === "board" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 } }, /* @__PURE__ */ React.createElement("select", { value: colId, onChange: (e) => setColId(e.target.value), style: selectStyle }, columns.map((c) => /* @__PURE__ */ React.createElement("option", { key: c.id, value: c.id }, c.name))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => colId && onSendToBoard(colId), style: { ...btnPrimary, padding: "6px 11px" } }, "Confirmar"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSending(null), style: btnGhost }, "Cancelar")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSending("agenda"), style: { ...btnGhost, padding: "5px 10px", fontSize: 12.5 } }, /* @__PURE__ */ React.createElement(CalendarDays, { size: 13 }), " Enviar a la agenda"), columns.length > 0 && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setSending("board"), style: { ...btnGhost, padding: "5px 10px", fontSize: 12.5 } }, /* @__PURE__ */ React.createElement(Columns, { size: 13 }), " Enviar al tablero")));
   }
   function NotesView({ doc, update, onSendToAgenda }) {
     const backlog = doc.backlog;
@@ -2323,6 +2397,30 @@
     const lbl = { fontSize: 12.5, color: INK_LIGHT };
     return /* @__PURE__ */ React.createElement(Modal, { onClose, width: 460 }, /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 20px", display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18 } }, "Importar calendario (.ics)"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: iconBtn, "aria-label": "Cerrar" }, /* @__PURE__ */ React.createElement(X, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: MUTED, lineHeight: 1.45 } }, "Elegí un archivo .ics exportado de Google Calendar, Outlook, el calendario del celular u otra agenda. Los eventos se agregan a tu semana; los que se repiten se cargan como series."), /* @__PURE__ */ React.createElement("label", { style: { ...btnGhost, justifyContent: "center", background: "#fff", cursor: "pointer" } }, /* @__PURE__ */ React.createElement(Download, { size: 14, style: { transform: "rotate(180deg)" } }), " ", fileName ? "Cambiar archivo" : "Elegir archivo .ics", /* @__PURE__ */ React.createElement("input", { id: "ics-file", type: "file", accept: ".ics,text/calendar", onChange: (e) => readFile(e.target.files && e.target.files[0]), style: { display: "none" } })), fileName && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: INK_LIGHT } }, "Archivo: ", /* @__PURE__ */ React.createElement("b", null, fileName)), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: CLAY, background: "#F6E3DD", borderRadius: 7, padding: "7px 10px" } }, err), backup && /* @__PURE__ */ React.createElement("div", { style: { background: "#EEF3EA", border: `1px solid ${SAGE}66`, borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, fontSize: 13 } }, /* @__PURE__ */ React.createElement("div", null, "Este archivo es una ", /* @__PURE__ */ React.createElement("b", null, "copia completa de la Agenda Copahue"), ": trae ", Object.values(backup.days || {}).reduce((n, l) => n + l.filter((t) => !t.skipped).length, 0), " tareas, ", (backup.templates || []).length, " series, ", (backup.backlog || []).length, " notas y ", (backup.board && backup.board.cards || []).length, " tarjetas del tablero."), /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "radio", name: "ics-mode", checked: mode === "backup", onChange: () => setMode("backup") }), " Restaurar todo (recomendado)"), /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "radio", name: "ics-mode", checked: mode === "events", onChange: () => setMode("events") }), " Solo los eventos del calendario"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED } }, "Se suma a lo que ya tenés; lo que ya existe no se duplica.")), !backup && fromCopahue && events && events.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#3E5F80", background: "#E3EBF3", borderRadius: 8, padding: "8px 10px", lineHeight: 1.45 } }, "Este archivo lo exportó una versión anterior de la agenda: las tarjetas del tablero se recrean en la columna «Importadas del calendario» y las series se reconstruyen. Las tarjetas sin fecha y las notas no venían en el archivo."), mode === "events" && events && events.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: `1px solid ${HAIRLINE}`, borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, fontSize: 13 } }, /* @__PURE__ */ React.createElement("div", null, "Se encontraron ", /* @__PURE__ */ React.createElement("b", null, events.length), " eventos", dup ? ` (${dup} ya estaban importados y se omiten)` : "", "."), past > 0 && /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: includePast, onChange: (e) => setIncludePast(e.target.checked) }), "Incluir también ", past, " ", past === 1 ? "evento pasado" : "eventos pasados"), /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 8, alignItems: "center" } }, "Cargar como", /* @__PURE__ */ React.createElement("select", { value: type, onChange: (e) => setType(e.target.value), style: { ...inputStyle, padding: "5px 8px" } }, TYPES.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l)))), toImport.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 160, overflowY: "auto", borderTop: `1px solid ${HAIRLINE}`, paddingTop: 6, display: "flex", flexDirection: "column", gap: 3 } }, toImport.slice(0, 40).map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: 12, color: CHARCOAL, display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("span", { style: { color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } }, shortDate(e.date), e.time ? " " + e.time : ""), /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.title, e.rule ? " ↻" : ""))), toImport.length > 40 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED } }, "y ", toImport.length - 40, " más…"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: btnGhost }, "Cancelar"), mode === "backup" && backup ? /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onRestore(backup), style: { ...btnPrimary, background: SAGE } }, /* @__PURE__ */ React.createElement(Check, { size: 14 }), " Restaurar todo") : /* @__PURE__ */ React.createElement("button", { type: "button", disabled: !toImport.length, onClick: () => onImport(toImport, type, series, fromCopahue), style: { ...btnPrimary, opacity: toImport.length ? 1 : 0.5 } }, /* @__PURE__ */ React.createElement(Check, { size: 14 }), " Importar ", toImport.length || "", " ", toImport.length === 1 ? "evento" : "eventos"))));
   }
+  function ToneModal({ tone, volume, onClose, onSave }) {
+    const [sel, setSel] = useState6(tone);
+    const [vol, setVol] = useState6(volume);
+    const [playing, setPlaying] = useState6(null);
+    const play = (id) => {
+      unlockAudio();
+      playTone(id, vol);
+      setPlaying(id);
+      setTimeout(() => setPlaying((p) => p === id ? null : p), 1600);
+    };
+    const levels = ["Suave", "Medio", "Fuerte"];
+    const levelColor = { Suave: SAGE, Medio: BRASS, Fuerte: CLAY };
+    return /* @__PURE__ */ React.createElement(Modal, { onClose, width: 440 }, /* @__PURE__ */ React.createElement("div", { style: { padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18 } }, "Tono de alarma"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: iconBtn, "aria-label": "Cerrar" }, /* @__PURE__ */ React.createElement(X, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: MUTED } }, "Tocá ▶ para escuchar cada tono. Se usa en todas tus alarmas y se guarda en tu usuario, así suena igual en todos tus dispositivos."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: INK_LIGHT } }, "Volumen"), /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: "#DCDCE1", borderRadius: 8, padding: 2 } }, ALARM_VOLUMES.map(([id, label]) => /* @__PURE__ */ React.createElement("button", { key: id, type: "button", onClick: () => {
+      setVol(id);
+      unlockAudio();
+      playTone(sel, id);
+    }, style: { fontSize: 12.5, padding: "5px 12px", borderRadius: 6, border: "none", background: vol === id ? INK : "transparent", color: vol === id ? PAPER : INK_LIGHT, cursor: "pointer", fontFamily: "inherit" } }, label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10, maxHeight: "55vh", overflowY: "auto" } }, levels.map((lv) => /* @__PURE__ */ React.createElement("div", { key: lv }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", color: levelColor[lv], marginBottom: 5 } }, lv === "Medio" ? "Medios" : lv === "Suave" ? "Suaves" : "Fuertes"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } }, ALARM_TONES.filter((t) => t.level === lv).map((t) => {
+      const on = sel === t.id;
+      return /* @__PURE__ */ React.createElement("div", { key: t.id, style: { display: "flex", alignItems: "center", gap: 8, background: on ? "#fff" : "transparent", border: `1px solid ${on ? INK : HAIRLINE}`, borderRadius: 8, padding: "6px 8px" } }, /* @__PURE__ */ React.createElement("label", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, cursor: "pointer", color: CHARCOAL } }, /* @__PURE__ */ React.createElement("input", { type: "radio", name: "alarm-tone", checked: on, onChange: () => {
+        setSel(t.id);
+        play(t.id);
+      } }), t.label), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => play(t.id), "aria-label": "Escuchar " + t.label, title: "Escuchar", style: { ...btnGhost, padding: "3px 10px", fontSize: 12, background: playing === t.id ? "#E6E1D8" : "#fff" } }, "▶"));
+    }))))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: btnGhost }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onSave(sel, vol), style: btnPrimary }, /* @__PURE__ */ React.createElement(Check, { size: 14 }), " Guardar"))));
+  }
   function DeleteAllModal({ userName, sharedCount, onClose, onConfirm }) {
     const [text, setText] = useState6("");
     const [alsoShared, setAlsoShared] = useState6(true);
@@ -2383,6 +2481,7 @@
     const [toasts, setToasts] = useState6([]);
     const [pwOpen, setPwOpen] = useState6(false);
     const [icsOpen, setIcsOpen] = useState6(false);
+    const [toneOpen, setToneOpen] = useState6(false);
     const [delOpen, setDelOpen] = useState6(false);
     const [summaryCollapsed, setSummaryCollapsed] = useState6(() => !!ls.get(P2 + "summaryCollapsed:" + user.id, false));
     const [monthCursor, setMonthCursor] = useState6(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -2776,17 +2875,17 @@
       if (!doc) return;
       const fired = { ...ls.get(firedKey, {}), ...doc.alarmsFired || {} };
       const nowMs = now.getTime();
-      const ring = [];
+      const ring2 = [];
       alarmCandidates.forEach((a) => {
         if (fired[a.key]) return;
         const sn = snoozeRef.current[a.key];
         const due = sn ? nowMs >= sn : nowMs >= a.at && nowMs - a.at < 2 * 36e5;
-        if (due && !ringing.some((r) => r.key === a.key)) ring.push(a);
+        if (due && !ringing.some((r) => r.key === a.key)) ring2.push(a);
       });
-      if (ring.length) {
-        setRinging((r) => [...r, ...ring]);
-        pushNotifs(ring.map((a) => ({ id: uid(), at: Date.now(), kind: "alarm", who: "", text: "Sonó la alarma de", title: a.title, detail: `${a.iso === todayISO ? "hoy" : shortDate(a.iso)} a las ${a.time}${a.from ? " · de " + a.from : ""}`, iso: a.iso, read: false })), { toast: false });
-        ring.forEach((a) => {
+      if (ring2.length) {
+        setRinging((r) => [...r, ...ring2]);
+        pushNotifs(ring2.map((a) => ({ id: uid(), at: Date.now(), kind: "alarm", who: "", text: "Sonó la alarma de", title: a.title, detail: `${a.iso === todayISO ? "hoy" : shortDate(a.iso)} a las ${a.time}${a.from ? " · de " + a.from : ""}`, iso: a.iso, read: false })), { toast: false });
+        ring2.forEach((a) => {
           delete snoozeRef.current[a.key];
           try {
             if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("⏰ " + a.title, { body: `A las ${a.time}`, tag: a.key, requireInteraction: true });
@@ -2806,13 +2905,17 @@
           for (const [k, ts] of Object.entries(d.alarmsFired || {})) if (nowMs - ts > 4 * 864e5) delete d.alarmsFired[k];
         });
     }, [now, alarmCandidates]);
+    const tonePrefs = doc && doc.prefs || {};
+    const toneRef = useRef4(tonePrefs);
+    toneRef.current = tonePrefs;
+    const ring = () => playTone(toneRef.current.alarmTone || "clasico", toneRef.current.alarmVolume || "medio");
     useEffect5(() => {
       if (!ringing.length) return;
-      beep();
+      ring();
       const orig = document.title;
       let flip = false;
       const t = setInterval(() => {
-        beep();
+        ring();
         flip = !flip;
         document.title = flip ? "⏰ " + ringing[0].title : orig;
       }, 2200);
@@ -2865,7 +2968,7 @@
       if (!inView) setWeekStart(centerStart(fromISO(iso)));
     };
     const addTask = (v) => {
-      const iso = selected;
+      const iso = v.newDate || selected;
       if (v.toNotes) {
         update((d) => d.backlog.push({ id: uid(), title: v.title, notes: v.notes || "", type: v.type, importance: v.importance, urgency: v.urgency, createdAt: todayISO }));
         setFormOpen(false);
@@ -2908,6 +3011,10 @@
         if (task.type === "reunion") setExpanded((p) => ({ ...p, [task.id]: true }));
       });
       setFormOpen(false);
+      if (iso !== selected) {
+        goTo(iso);
+        setNotice(`“${v.title}” quedó agendado para el ${fromISO(iso).toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`);
+      }
     };
     const quickAddMeeting = (rec) => {
       const iso = selected;
@@ -3011,12 +3118,12 @@
         else delete c.doneDates[iso];
       }
     });
-    const sendNoteToAgenda = (note, iso, time) => {
+    const sendNoteToAgenda = (note2, iso, time) => {
       update((d) => {
         materializeDay(d, iso, todayISO);
-        const task = { id: uid(), title: note.title, time: time || "", type: note.type, person: "", importance: note.importance, urgency: note.urgency, reminder: { enabled: false, lead: "same" }, alarm: { enabled: false, minutes: 0 }, repeat: "none", carryOver: false, completed: false, topics: note.type === "reunion" ? [] : void 0, notes: note.notes || void 0 };
+        const task = { id: uid(), title: note2.title, time: time || "", type: note2.type, person: "", importance: note2.importance, urgency: note2.urgency, reminder: { enabled: false, lead: "same" }, alarm: { enabled: false, minutes: 0 }, repeat: "none", carryOver: false, completed: false, topics: note2.type === "reunion" ? [] : void 0, notes: note2.notes || void 0 };
         d.days[iso] = [...d.days[iso] || [], task].sort(byTime);
-        d.backlog = d.backlog.filter((n) => n.id !== note.id);
+        d.backlog = d.backlog.filter((n) => n.id !== note2.id);
       });
       setView("week");
       goTo(iso);
@@ -3286,7 +3393,10 @@
           d.notifications = [];
         })
       }
-    ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "acp-userbtn", "aria-label": "Menú de " + user.name, title: user.name, onClick: () => setMenuOpen((o) => !o), style: { display: "flex", alignItems: "center", gap: 8, background: INK_LIGHT, border: "none", borderRadius: 20, padding: "5px 12px 5px 6px", color: PAPER, cursor: "pointer", fontFamily: "inherit", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 26, height: 26, borderRadius: 13, background: BRASS, color: INK, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, fontSize: 12.5 } }, user.name.slice(0, 1).toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "acp-username" }, user.name), /* @__PURE__ */ React.createElement(ChevronDown, { size: 13, className: "acp-username" })), menuOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { onClick: () => setMenuOpen(false), style: { position: "fixed", inset: 0, zIndex: 30 } }), /* @__PURE__ */ React.createElement("div", { className: "acp-pop", style: { position: "absolute", right: 0, top: 40, zIndex: 31, background: PAPER, borderRadius: 10, boxShadow: "0 12px 34px rgba(0,0,0,0.3)", padding: 6, width: 270 } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "8px 12px 10px", fontSize: 11.5, color: MUTED, borderBottom: `1px solid ${HAIRLINE}`, marginBottom: 4, display: "flex", gap: 6, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement(Cloud, { size: 13, style: { marginTop: 1 } }), backend.mode !== "local" ? "Guardado en la nube: podés entrar desde cualquier dispositivo." : "Modo local: no hay conexión con la base de datos, los datos quedan solo en este navegador."), notifPerm !== "granted" && notifPerm !== "unsupported" && /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: askNotif }, /* @__PURE__ */ React.createElement(Bell, { size: 14 }), " Activar notificaciones del navegador"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: testAlarm }, /* @__PURE__ */ React.createElement(AlarmClock, { size: 14 }), " Probar alarma"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: exportICS }, /* @__PURE__ */ React.createElement(Download, { size: 14 }), " Exportar a calendario (.ics)"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: () => {
+    ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "acp-userbtn", "aria-label": "Menú de " + user.name, title: user.name, onClick: () => setMenuOpen((o) => !o), style: { display: "flex", alignItems: "center", gap: 8, background: INK_LIGHT, border: "none", borderRadius: 20, padding: "5px 12px 5px 6px", color: PAPER, cursor: "pointer", fontFamily: "inherit", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 26, height: 26, borderRadius: 13, background: BRASS, color: INK, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, fontSize: 12.5 } }, user.name.slice(0, 1).toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "acp-username" }, user.name), /* @__PURE__ */ React.createElement(ChevronDown, { size: 13, className: "acp-username" })), menuOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { onClick: () => setMenuOpen(false), style: { position: "fixed", inset: 0, zIndex: 30 } }), /* @__PURE__ */ React.createElement("div", { className: "acp-pop", style: { position: "absolute", right: 0, top: 40, zIndex: 31, background: PAPER, borderRadius: 10, boxShadow: "0 12px 34px rgba(0,0,0,0.3)", padding: 6, width: 270 } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "8px 12px 10px", fontSize: 11.5, color: MUTED, borderBottom: `1px solid ${HAIRLINE}`, marginBottom: 4, display: "flex", gap: 6, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement(Cloud, { size: 13, style: { marginTop: 1 } }), backend.mode !== "local" ? "Guardado en la nube: podés entrar desde cualquier dispositivo." : "Modo local: no hay conexión con la base de datos, los datos quedan solo en este navegador."), notifPerm !== "granted" && notifPerm !== "unsupported" && /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: askNotif }, /* @__PURE__ */ React.createElement(Bell, { size: 14 }), " Activar notificaciones del navegador"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: () => {
+      setMenuOpen(false);
+      setToneOpen(true);
+    } }, /* @__PURE__ */ React.createElement(Bell, { size: 14 }), " Tono de alarma"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: testAlarm }, /* @__PURE__ */ React.createElement(AlarmClock, { size: 14 }), " Probar alarma"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: exportICS }, /* @__PURE__ */ React.createElement(Download, { size: 14 }), " Exportar a calendario (.ics)"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: () => {
       setMenuOpen(false);
       setIcsOpen(true);
     } }, /* @__PURE__ */ React.createElement(Download, { size: 14, style: { transform: "rotate(180deg)" } }), " Importar calendario (.ics)"), legacy && /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: () => {
@@ -3418,7 +3528,7 @@
         setView("board");
         setOpenCardId(c.id);
       } });
-    })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14 } }, formOpen ? /* @__PURE__ */ React.createElement("div", { style: { background: "#EDEDF0", border: `1px solid ${HAIRLINE}`, borderRadius: 10, padding: 12 } }, /* @__PURE__ */ React.createElement(TaskEditor, { key: selected, dateISO: selected, users: otherUsers, allowNotes: true, onSave: addTask, onCancel: () => setFormOpen(false) })) : /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormOpen(true), style: { ...btnPrimary, padding: "9px 14px" } }, /* @__PURE__ */ React.createElement(Plus, { size: 15 }), " Agregar tarea, reunión o aviso")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 } }, RECURRING_QUICK.map((r) => /* @__PURE__ */ React.createElement("button", { key: r.label, type: "button", onClick: () => quickAddMeeting(r), style: { ...btnGhost, background: PAPER, padding: "6px 11px", fontSize: 12.5 } }, /* @__PURE__ */ React.createElement(Users, { size: 13 }), " Reunión con ", r.label, " ", /* @__PURE__ */ React.createElement(Repeat, { size: 11, color: MUTED })))), doc.templates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setShowSeries((p) => !p), style: { display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: INK_LIGHT, fontSize: 12.5, cursor: "pointer", padding: 0, fontFamily: "inherit" } }, showSeries ? /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }) : /* @__PURE__ */ React.createElement(ChevronRight, { size: 14 }), " ", /* @__PURE__ */ React.createElement(Repeat, { size: 13 }), " Series recurrentes activas (", doc.templates.length, ")"), showSeries && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, background: PAPER, border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: "4px 12px" } }, doc.templates.map((t) => /* @__PURE__ */ React.createElement("div", { key: t.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 0", borderBottom: `1px solid ${HAIRLINE}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", null, t.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", null, repeatLabel(t.repeat, t.every), t.time ? ` · ${t.time}` : "", " · desde ", shortDate(t.startDate)), t.alarm && t.alarm.enabled && t.time && /* @__PURE__ */ React.createElement("span", { style: { color: CLAY } }, "⏰ ", alarmLabel(t.alarm.minutes)), t.sharedWith && t.sharedWith.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: SKY } }, "Compartida con ", t.sharedWith.map(userName).filter(Boolean).join(", ")))), /* @__PURE__ */ React.createElement(ConfirmButton, { onConfirm: () => deleteSeries(t.id), label: "Eliminar serie", title: "Eliminar toda la serie" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 })))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: MUTED, padding: "6px 0" } }, "Eliminar una serie borra sus apariciones pendientes desde hoy; las pasadas quedan en el historial."))))), view === "week" && /* @__PURE__ */ React.createElement(Summary, { groups: summary, todayISO, collapsed: summaryCollapsed, onCollapse: (v) => {
+    })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14 } }, formOpen ? /* @__PURE__ */ React.createElement("div", { style: { background: "#EDEDF0", border: `1px solid ${HAIRLINE}`, borderRadius: 10, padding: 12 } }, /* @__PURE__ */ React.createElement(TaskEditor, { key: selected, dateISO: selected, showDate: true, users: otherUsers, allowNotes: true, onSave: addTask, onCancel: () => setFormOpen(false) })) : /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormOpen(true), style: { ...btnPrimary, padding: "9px 14px" } }, /* @__PURE__ */ React.createElement(Plus, { size: 15 }), " Agregar tarea, reunión o aviso")), doc.templates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setShowSeries((p) => !p), style: { display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: INK_LIGHT, fontSize: 12.5, cursor: "pointer", padding: 0, fontFamily: "inherit" } }, showSeries ? /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }) : /* @__PURE__ */ React.createElement(ChevronRight, { size: 14 }), " ", /* @__PURE__ */ React.createElement(Repeat, { size: 13 }), " Series recurrentes activas (", doc.templates.length, ")"), showSeries && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, background: PAPER, border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: "4px 12px" } }, doc.templates.map((t) => /* @__PURE__ */ React.createElement("div", { key: t.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 0", borderBottom: `1px solid ${HAIRLINE}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", null, t.title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", null, repeatLabel(t.repeat, t.every), t.time ? ` · ${t.time}` : "", " · desde ", shortDate(t.startDate)), t.alarm && t.alarm.enabled && t.time && /* @__PURE__ */ React.createElement("span", { style: { color: CLAY } }, "⏰ ", alarmLabel(t.alarm.minutes)), t.sharedWith && t.sharedWith.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: SKY } }, "Compartida con ", t.sharedWith.map(userName).filter(Boolean).join(", ")))), /* @__PURE__ */ React.createElement(ConfirmButton, { onConfirm: () => deleteSeries(t.id), label: "Eliminar serie", title: "Eliminar toda la serie" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 })))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: MUTED, padding: "6px 0" } }, "Eliminar una serie borra sus apariciones pendientes desde hoy; las pasadas quedan en el historial."))))), view === "week" && /* @__PURE__ */ React.createElement(Summary, { groups: summary, todayISO, collapsed: summaryCollapsed, onCollapse: (v) => {
       setSummaryCollapsed(v);
       ls.set(P2 + "summaryCollapsed:" + user.id, v);
     }, onGo: (iso) => {
@@ -3444,7 +3554,21 @@
           d.sharedSeen[id] = true;
         })
       }
-    ), view === "notes" && /* @__PURE__ */ React.createElement(NotesView, { doc, update, onSendToAgenda: sendNoteToAgenda }), icsOpen && /* @__PURE__ */ React.createElement(ImportICSModal, { todayISO, importedUids: doc.icsImported || {}, onClose: () => setIcsOpen(false), onImport: importICS, onRestore: restoreBackup }), delOpen && /* @__PURE__ */ React.createElement(DeleteAllModal, { userName: user.name, sharedCount: sharedIn.filter((i) => !(doc.sharedStatus[i.id] || {}).hidden).length, onClose: () => setDelOpen(false), onConfirm: deleteAll }), pwOpen && /* @__PURE__ */ React.createElement(PasswordModal, { backend, onClose: () => setPwOpen(false), onDone: () => {
+    ), view === "notes" && /* @__PURE__ */ React.createElement(NotesView, { doc, update, onSendToAgenda: sendNoteToAgenda }), toneOpen && /* @__PURE__ */ React.createElement(
+      ToneModal,
+      {
+        tone: tonePrefs.alarmTone || "clasico",
+        volume: tonePrefs.alarmVolume || "medio",
+        onClose: () => setToneOpen(false),
+        onSave: (tone, volume) => {
+          update((d) => {
+            d.prefs = { ...d.prefs || {}, alarmTone: tone, alarmVolume: volume };
+          });
+          setToneOpen(false);
+          setNotice(`Tono de alarma: ${(ALARM_TONES.find((t) => t.id === tone) || {}).label || tone}.`);
+        }
+      }
+    ), icsOpen && /* @__PURE__ */ React.createElement(ImportICSModal, { todayISO, importedUids: doc.icsImported || {}, onClose: () => setIcsOpen(false), onImport: importICS, onRestore: restoreBackup }), delOpen && /* @__PURE__ */ React.createElement(DeleteAllModal, { userName: user.name, sharedCount: sharedIn.filter((i) => !(doc.sharedStatus[i.id] || {}).hidden).length, onClose: () => setDelOpen(false), onConfirm: deleteAll }), pwOpen && /* @__PURE__ */ React.createElement(PasswordModal, { backend, onClose: () => setPwOpen(false), onDone: () => {
       setPwOpen(false);
       setNotice("Listo: tu clave se cambió. La próxima vez que ingreses usá la nueva.");
     } }), /* @__PURE__ */ React.createElement(Toasts, { toasts, onClose: (id) => setToasts((t) => t.filter((x) => x.id !== id)), onOpen: openNotif }), ringing.length > 0 && /* @__PURE__ */ React.createElement(AlarmOverlay, { ringing, onStop: stopAlarm, onSnooze: snoozeAlarm, onDone: doneAlarm }));
