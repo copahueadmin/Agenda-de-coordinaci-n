@@ -528,10 +528,28 @@
   function icsEscape(s) {
     return String(s || "").replace(/\\/g, "\\\\").replace(/[,;]/g, (m) => "\\" + m).replace(/\n/g, "\\n");
   }
-  function buildICS(items) {
+  function b64encode(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
+    return btoa(bin);
+  }
+  function b64decode(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  function buildICS(items, backup) {
     const now = /* @__PURE__ */ new Date();
     const stamp = icsDate(toISO(now), `${pad(now.getHours())}:${pad(now.getMinutes())}`);
-    const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Hotel Copahue//Agenda Operativa//ES"];
+    const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Hotel Copahue//Agenda Operativa//ES", "X-WR-CALNAME:Agenda Copahue"];
+    if (backup) {
+      const b = b64encode(JSON.stringify(backup));
+      let first = "X-COPAHUE-BACKUP:" + b.slice(0, 57);
+      lines.push(first);
+      for (let i = 57; i < b.length; i += 73) lines.push(" " + b.slice(i, i + 73));
+    }
     items.forEach((e) => {
       lines.push("BEGIN:VEVENT", `UID:${e.uid}@agenda.hotelcopahue`, `DTSTAMP:${stamp}Z`, `DTSTART:${icsDate(e.iso, e.time)}`, `SUMMARY:${icsEscape(e.title)}`);
       if (e.desc) lines.push(`DESCRIPTION:${icsEscape(e.desc)}`);
@@ -754,6 +772,8 @@
     const events = [];
     let ev = null;
     let inAlarm = false;
+    let prodid = "";
+    let backupB64 = "";
     for (const line of lines) {
       const idx = line.indexOf(":");
       if (idx < 0) continue;
@@ -762,6 +782,8 @@
       const [name, ...paramsArr] = left.split(";");
       const key = name.toUpperCase();
       const params = paramsArr.join(";");
+      if (!ev && key === "PRODID") prodid = value.trim();
+      if (!ev && key === "X-COPAHUE-BACKUP") backupB64 = value.trim();
       if (key === "BEGIN" && value.trim().toUpperCase() === "VEVENT") {
         ev = { alarms: [] };
         continue;
@@ -802,7 +824,15 @@
         ev.rrule = r;
       }
     }
-    return events.filter((e) => e.start && e.status !== "CANCELLED").map((e) => {
+    let backup = null;
+    if (backupB64) {
+      try {
+        backup = JSON.parse(b64decode(backupB64));
+      } catch (e) {
+        backup = null;
+      }
+    }
+    const list = events.filter((e) => e.start && e.status !== "CANCELLED").map((e) => {
       const r = e.rrule;
       let rule = null;
       if (r && r.FREQ) {
@@ -824,6 +854,41 @@
         rule
       };
     });
+    return { events: list, backup, fromCopahue: /Hotel Copahue/i.test(prodid) };
+  }
+  function inferRepeat(dates) {
+    const ds = [...new Set(dates)].sort();
+    if (ds.length <= 1) return { repeat: "none" };
+    const diffs = [];
+    for (let i = 1; i < ds.length; i++) diffs.push(Math.round((fromISO(ds[i]) - fromISO(ds[i - 1])) / 864e5));
+    if (diffs.every((x) => x === diffs[0])) {
+      const k = diffs[0];
+      if (k === 1) return { repeat: "daily" };
+      if (k === 7) return { repeat: "weekly" };
+      return { repeat: "everyN", every: k };
+    }
+    const dom = fromISO(ds[0]).getDate();
+    if (ds.every((x) => fromISO(x).getDate() === dom)) return { repeat: "monthly" };
+    const dow = fromISO(ds[0]).getDay();
+    if (ds.every((x) => fromISO(x).getDay() === dow)) return { repeat: "weekly" };
+    return null;
+  }
+  function groupCopahueEvents(events) {
+    const tasks = [];
+    const series = {};
+    const cards = {};
+    events.forEach((e) => {
+      var _a, _b;
+      const u = (e.uid || "").replace(/@agenda\.hotelcopahue$/, "");
+      let m;
+      if (/^sh-/.test(u)) return;
+      if (m = u.match(/^card-(.+)-(\d{4}-\d{2}-\d{2})$/)) {
+        (cards[_a = m[1]] || (cards[_a] = { id: m[1], ev: e, dates: [] })).dates.push(m[2]);
+      } else if (m = u.match(/^(.+)-(\d{4}-\d{2}-\d{2})$/)) {
+        (series[_b = m[1]] || (series[_b] = { id: m[1], ev: e, dates: [] })).dates.push(m[2]);
+      } else tasks.push({ ...e, id: u || void 0 });
+    });
+    return { tasks, series: Object.values(series), cards: Object.values(cards) };
   }
   function icsToRules(ev) {
     const r = ev.rule;
@@ -1634,6 +1699,19 @@
   function Meta({ children }) {
     return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, marginTop: 4, fontSize: 11.5, color: MUTED } }, children);
   }
+  function SeriesDeleteButton({ onDelete }) {
+    const [open, setOpen] = useState2(false);
+    if (!open)
+      return /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setOpen(true), style: iconBtn, "aria-label": "Eliminar", title: "Eliminar" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }));
+    const small = { ...iconBtn, fontSize: 11.5, padding: "3px 8px", borderRadius: 6, whiteSpace: "nowrap" };
+    return /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => {
+      setOpen(false);
+      onDelete("one");
+    }, style: { ...small, border: `1px solid ${HAIRLINE}`, color: INK_LIGHT, background: "#fff" } }, "Solo este día"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => {
+      setOpen(false);
+      onDelete("series");
+    }, style: { ...small, background: CLAY, color: "#fff" } }, "Toda la serie"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setOpen(false), style: iconBtn, "aria-label": "Cancelar" }, /* @__PURE__ */ React.createElement(X, { size: 13 })));
+  }
   function TaskRow({ task, dayISO, users, userName, expanded, onToggleExpand, onToggleComplete, onDelete, onSave, onAddTopic, onToggleTopic, onDeleteTopic }) {
     const [editing, setEditing] = useState2(false);
     const isReunion = task.type === "reunion";
@@ -1656,7 +1734,7 @@
         }
       ));
     const sharedNames = (task.sharedWith || []).map(userName).filter(Boolean);
-    return /* @__PURE__ */ React.createElement("div", { style: rowStyle(accent, task.completed) }, /* @__PURE__ */ React.createElement(CheckCircle, { done: task.completed, onClick: onToggleComplete }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" } }, task.time && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, fontWeight: 600, color: INK, fontVariantNumeric: "tabular-nums" } }, task.time), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, color: CHARCOAL, textDecoration: task.completed ? "line-through" : "none", wordBreak: "break-word" } }, task.title), task.type !== "tarea" && /* @__PURE__ */ React.createElement("span", { style: chip(TYPE_COLOR[task.type]) }, /* @__PURE__ */ React.createElement(TypeIcon, { type: task.type, size: 10, color: "#fff" }), " ", TYPE_LABEL[task.type]), /* @__PURE__ */ React.createElement(LevelChips, { importance: task.importance, urgency: task.urgency })), task.notes && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: INK_LIGHT, marginTop: 3, whiteSpace: "pre-wrap" } }, task.notes), /* @__PURE__ */ React.createElement(Meta, null, task.person && /* @__PURE__ */ React.createElement("span", null, "Con: ", task.person), task.recurringId && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement(Repeat, { size: 11 }), " ", repeatLabel(task.repeat, task.every)), task.reminder && task.reminder.enabled && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement(Bell, { size: 11 }), " ", LEAD_LABEL[task.reminder.lead]), task.alarm && task.alarm.enabled && task.time && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3, color: CLAY } }, /* @__PURE__ */ React.createElement(AlarmClock, { size: 11 }), " ", alarmLabel(task.alarm.minutes)), task.carryOver && /* @__PURE__ */ React.createElement("span", { title: "Si no se completa, pasa al día siguiente (viernes y sábado pasan al lunes)", style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement(ArrowRight, { size: 11 }), " ", [5, 6].includes(fromISO(dayISO).getDay()) ? "si queda pendiente, pasa al lunes" : "pasa al día siguiente"), task.carriedForward && /* @__PURE__ */ React.createElement("span", { style: { color: BRASS } }, task.carriedFrom ? `Arrastrada del ${shortDate(task.carriedFrom)}` : "Arrastrada del día anterior"), sharedNames.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3, color: SKY } }, /* @__PURE__ */ React.createElement(Share, { size: 11 }), " Compartido con ", sharedNames.join(", "))), isReunion && expanded && /* @__PURE__ */ React.createElement(Topics, { topics: task.topics, onAdd: onAddTopic, onToggle: onToggleTopic, onDelete: onDeleteTopic })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 2 } }, isReunion && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onToggleExpand, style: { ...iconBtn, fontSize: 11.5, gap: 3 }, "aria-label": "Ver temario", title: "Temas a tratar" }, expanded ? /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }) : /* @__PURE__ */ React.createElement(ChevronRight, { size: 14 }), " ", (task.topics || []).length), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setEditing(true), style: iconBtn, "aria-label": "Editar", title: "Editar" }, /* @__PURE__ */ React.createElement(Pencil, { size: 14 })), /* @__PURE__ */ React.createElement(ConfirmButton, { onConfirm: onDelete, title: task.recurringId ? "Eliminar esta aparición" : "Eliminar" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))));
+    return /* @__PURE__ */ React.createElement("div", { style: rowStyle(accent, task.completed) }, /* @__PURE__ */ React.createElement(CheckCircle, { done: task.completed, onClick: onToggleComplete }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" } }, task.time && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, fontWeight: 600, color: INK, fontVariantNumeric: "tabular-nums" } }, task.time), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, color: CHARCOAL, textDecoration: task.completed ? "line-through" : "none", wordBreak: "break-word" } }, task.title), task.type !== "tarea" && /* @__PURE__ */ React.createElement("span", { style: chip(TYPE_COLOR[task.type]) }, /* @__PURE__ */ React.createElement(TypeIcon, { type: task.type, size: 10, color: "#fff" }), " ", TYPE_LABEL[task.type]), /* @__PURE__ */ React.createElement(LevelChips, { importance: task.importance, urgency: task.urgency })), task.notes && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: INK_LIGHT, marginTop: 3, whiteSpace: "pre-wrap" } }, task.notes), /* @__PURE__ */ React.createElement(Meta, null, task.person && /* @__PURE__ */ React.createElement("span", null, "Con: ", task.person), task.recurringId && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement(Repeat, { size: 11 }), " ", repeatLabel(task.repeat, task.every)), task.reminder && task.reminder.enabled && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement(Bell, { size: 11 }), " ", LEAD_LABEL[task.reminder.lead]), task.alarm && task.alarm.enabled && task.time && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3, color: CLAY } }, /* @__PURE__ */ React.createElement(AlarmClock, { size: 11 }), " ", alarmLabel(task.alarm.minutes)), task.carryOver && /* @__PURE__ */ React.createElement("span", { title: "Si no se completa, pasa al día siguiente (viernes y sábado pasan al lunes)", style: { display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement(ArrowRight, { size: 11 }), " ", [5, 6].includes(fromISO(dayISO).getDay()) ? "si queda pendiente, pasa al lunes" : "pasa al día siguiente"), task.carriedForward && /* @__PURE__ */ React.createElement("span", { style: { color: BRASS } }, task.carriedFrom ? `Arrastrada del ${shortDate(task.carriedFrom)}` : "Arrastrada del día anterior"), sharedNames.length > 0 && /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 3, color: SKY } }, /* @__PURE__ */ React.createElement(Share, { size: 11 }), " Compartido con ", sharedNames.join(", "))), isReunion && expanded && /* @__PURE__ */ React.createElement(Topics, { topics: task.topics, onAdd: onAddTopic, onToggle: onToggleTopic, onDelete: onDeleteTopic })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 2 } }, isReunion && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onToggleExpand, style: { ...iconBtn, fontSize: 11.5, gap: 3 }, "aria-label": "Ver temario", title: "Temas a tratar" }, expanded ? /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }) : /* @__PURE__ */ React.createElement(ChevronRight, { size: 14 }), " ", (task.topics || []).length), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setEditing(true), style: iconBtn, "aria-label": "Editar", title: "Editar" }, /* @__PURE__ */ React.createElement(Pencil, { size: 14 })), task.recurringId ? /* @__PURE__ */ React.createElement(SeriesDeleteButton, { onDelete }) : /* @__PURE__ */ React.createElement(ConfirmButton, { onConfirm: () => onDelete("one"), title: "Eliminar" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))));
   }
   function SharedRow({ item, done, isNew, onToggleDone, onHide, muted, onToggleMute }) {
     const [open, setOpen] = useState2(false);
@@ -2206,12 +2284,15 @@
     const onKey = (e) => e.key === "Enter" && submit();
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 420, margin: "6vh auto 0", borderRadius: 14, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" } }, /* @__PURE__ */ React.createElement("div", { style: { background: INK, padding: "26px 26px 22px", textAlign: "center" } }, /* @__PURE__ */ React.createElement("img", { src: HOTEL_LOGO, alt: "Hotel Copahue", style: { height: 62, width: "auto", maxWidth: "100%" } }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 24, color: BRASS_LIGHT, marginTop: 10 } }, "Agenda Coordinación Operativa"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", background: INK_LIGHT, borderRadius: 9, padding: 3, marginTop: 18 } }, tabBtn("login", "Ingresar"), tabBtn("register", "Crear usuario"))), /* @__PURE__ */ React.createElement("div", { style: { background: PARCHMENT, padding: "20px 26px 24px", display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: INK_LIGHT } }, "Nombre de usuario"), /* @__PURE__ */ React.createElement("input", { value: name, onChange: (e) => setName(e.target.value), onKeyDown: onKey, autoFocus: true, placeholder: "Ej: Giuliano", autoComplete: "username", style: inputStyle }), /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: INK_LIGHT } }, "Clave"), /* @__PURE__ */ React.createElement("input", { type: "password", value: pass, onChange: (e) => setPass(e.target.value), onKeyDown: onKey, autoComplete: tab === "login" ? "current-password" : "new-password", style: inputStyle }), tab === "register" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: INK_LIGHT } }, "Repetir clave"), /* @__PURE__ */ React.createElement("input", { type: "password", value: pass2, onChange: (e) => setPass2(e.target.value), onKeyDown: onKey, autoComplete: "new-password", style: inputStyle })), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: CLAY, background: "#F6E3DD", borderRadius: 7, padding: "7px 10px" } }, err), backend.mode === "firebase" && pendingLocal.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#3E5F80", background: "#E3EBF3", borderRadius: 7, padding: "8px 10px", lineHeight: 1.45 } }, "En este navegador hay usuarios que todavía no están en la nube: ", /* @__PURE__ */ React.createElement("b", null, pendingLocal.map((u) => u.name).join(", ")), ". Ingresá con tu nombre y clave de siempre y tu agenda se pasa a la nube automáticamente."), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: submit, disabled: busy, style: { ...btnPrimary, justifyContent: "center", padding: "10px 14px", marginTop: 6 } }, busy && /* @__PURE__ */ React.createElement(Loader2, { size: 14 }), " ", tab === "login" ? "Ingresar" : "Crear usuario e ingresar"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED, marginTop: 6, lineHeight: 1.45 } }, backend.mode !== "local" ? "Cada usuario tiene su propia agenda. Los datos se guardan en la nube, así que podés entrar desde cualquier dispositivo." : "Atención: no se pudo conectar con la base de datos en la nube. En este modo los usuarios y datos quedan guardados solo en este navegador.")));
   }
-  function ImportICSModal({ onClose, onImport, importedUids, todayISO }) {
+  function ImportICSModal({ onClose, onImport, onRestore, importedUids, todayISO }) {
     const [events, setEvents] = useState6(null);
     const [fileName, setFileName] = useState6("");
     const [err, setErr] = useState6("");
     const [includePast, setIncludePast] = useState6(false);
     const [type, setType] = useState6("tarea");
+    const [backup, setBackup] = useState6(null);
+    const [fromCopahue, setFromCopahue] = useState6(false);
+    const [mode, setMode] = useState6("events");
     const readFile = (f) => {
       if (!f) return;
       setErr("");
@@ -2219,8 +2300,13 @@
       const rd = new FileReader();
       rd.onload = () => {
         try {
-          const evs = parseICS(String(rd.result || ""));
-          if (!evs.length) setErr("No se encontraron eventos en el archivo. Revisá que sea un calendario .ics.");
+          const parsed = parseICS(String(rd.result || ""));
+          const evs = parsed.events;
+          const bk = parsed.backup && parsed.backup.app === "agenda-copahue" && parsed.backup.doc ? parsed.backup.doc : null;
+          setBackup(bk);
+          setFromCopahue(parsed.fromCopahue);
+          setMode(bk ? "backup" : "events");
+          if (!evs.length && !bk) setErr("No se encontraron eventos en el archivo. Revisá que sea un calendario .ics.");
           setEvents(evs);
         } catch (e) {
           setErr("No se pudo leer el archivo.");
@@ -2235,12 +2321,13 @@
     const toImport = events ? events.filter((e) => !(e.uid && importedUids[e.uid]) && (includePast || !isPast(e))) : [];
     const series = toImport.filter((e) => e.rule).length;
     const lbl = { fontSize: 12.5, color: INK_LIGHT };
-    return /* @__PURE__ */ React.createElement(Modal, { onClose, width: 460 }, /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 20px", display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18 } }, "Importar calendario (.ics)"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: iconBtn, "aria-label": "Cerrar" }, /* @__PURE__ */ React.createElement(X, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: MUTED, lineHeight: 1.45 } }, "Elegí un archivo .ics exportado de Google Calendar, Outlook, el calendario del celular u otra agenda. Los eventos se agregan a tu semana; los que se repiten se cargan como series."), /* @__PURE__ */ React.createElement("label", { style: { ...btnGhost, justifyContent: "center", background: "#fff", cursor: "pointer" } }, /* @__PURE__ */ React.createElement(Download, { size: 14, style: { transform: "rotate(180deg)" } }), " ", fileName ? "Cambiar archivo" : "Elegir archivo .ics", /* @__PURE__ */ React.createElement("input", { id: "ics-file", type: "file", accept: ".ics,text/calendar", onChange: (e) => readFile(e.target.files && e.target.files[0]), style: { display: "none" } })), fileName && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: INK_LIGHT } }, "Archivo: ", /* @__PURE__ */ React.createElement("b", null, fileName)), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: CLAY, background: "#F6E3DD", borderRadius: 7, padding: "7px 10px" } }, err), events && events.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: `1px solid ${HAIRLINE}`, borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, fontSize: 13 } }, /* @__PURE__ */ React.createElement("div", null, "Se encontraron ", /* @__PURE__ */ React.createElement("b", null, events.length), " eventos", dup ? ` (${dup} ya estaban importados y se omiten)` : "", "."), past > 0 && /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: includePast, onChange: (e) => setIncludePast(e.target.checked) }), "Incluir también ", past, " ", past === 1 ? "evento pasado" : "eventos pasados"), /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 8, alignItems: "center" } }, "Cargar como", /* @__PURE__ */ React.createElement("select", { value: type, onChange: (e) => setType(e.target.value), style: { ...inputStyle, padding: "5px 8px" } }, TYPES.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l)))), toImport.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 160, overflowY: "auto", borderTop: `1px solid ${HAIRLINE}`, paddingTop: 6, display: "flex", flexDirection: "column", gap: 3 } }, toImport.slice(0, 40).map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: 12, color: CHARCOAL, display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("span", { style: { color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } }, shortDate(e.date), e.time ? " " + e.time : ""), /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.title, e.rule ? " ↻" : ""))), toImport.length > 40 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED } }, "y ", toImport.length - 40, " más…"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: btnGhost }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { type: "button", disabled: !toImport.length, onClick: () => onImport(toImport, type, series), style: { ...btnPrimary, opacity: toImport.length ? 1 : 0.5 } }, /* @__PURE__ */ React.createElement(Check, { size: 14 }), " Importar ", toImport.length || "", " ", toImport.length === 1 ? "evento" : "eventos"))));
+    return /* @__PURE__ */ React.createElement(Modal, { onClose, width: 460 }, /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 20px", display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18 } }, "Importar calendario (.ics)"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: iconBtn, "aria-label": "Cerrar" }, /* @__PURE__ */ React.createElement(X, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: MUTED, lineHeight: 1.45 } }, "Elegí un archivo .ics exportado de Google Calendar, Outlook, el calendario del celular u otra agenda. Los eventos se agregan a tu semana; los que se repiten se cargan como series."), /* @__PURE__ */ React.createElement("label", { style: { ...btnGhost, justifyContent: "center", background: "#fff", cursor: "pointer" } }, /* @__PURE__ */ React.createElement(Download, { size: 14, style: { transform: "rotate(180deg)" } }), " ", fileName ? "Cambiar archivo" : "Elegir archivo .ics", /* @__PURE__ */ React.createElement("input", { id: "ics-file", type: "file", accept: ".ics,text/calendar", onChange: (e) => readFile(e.target.files && e.target.files[0]), style: { display: "none" } })), fileName && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: INK_LIGHT } }, "Archivo: ", /* @__PURE__ */ React.createElement("b", null, fileName)), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: CLAY, background: "#F6E3DD", borderRadius: 7, padding: "7px 10px" } }, err), backup && /* @__PURE__ */ React.createElement("div", { style: { background: "#EEF3EA", border: `1px solid ${SAGE}66`, borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, fontSize: 13 } }, /* @__PURE__ */ React.createElement("div", null, "Este archivo es una ", /* @__PURE__ */ React.createElement("b", null, "copia completa de la Agenda Copahue"), ": trae ", Object.values(backup.days || {}).reduce((n, l) => n + l.filter((t) => !t.skipped).length, 0), " tareas, ", (backup.templates || []).length, " series, ", (backup.backlog || []).length, " notas y ", (backup.board && backup.board.cards || []).length, " tarjetas del tablero."), /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "radio", name: "ics-mode", checked: mode === "backup", onChange: () => setMode("backup") }), " Restaurar todo (recomendado)"), /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "radio", name: "ics-mode", checked: mode === "events", onChange: () => setMode("events") }), " Solo los eventos del calendario"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED } }, "Se suma a lo que ya tenés; lo que ya existe no se duplica.")), !backup && fromCopahue && events && events.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#3E5F80", background: "#E3EBF3", borderRadius: 8, padding: "8px 10px", lineHeight: 1.45 } }, "Este archivo lo exportó una versión anterior de la agenda: las tarjetas del tablero se recrean en la columna «Importadas del calendario» y las series se reconstruyen. Las tarjetas sin fecha y las notas no venían en el archivo."), mode === "events" && events && events.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: `1px solid ${HAIRLINE}`, borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, fontSize: 13 } }, /* @__PURE__ */ React.createElement("div", null, "Se encontraron ", /* @__PURE__ */ React.createElement("b", null, events.length), " eventos", dup ? ` (${dup} ya estaban importados y se omiten)` : "", "."), past > 0 && /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: includePast, onChange: (e) => setIncludePast(e.target.checked) }), "Incluir también ", past, " ", past === 1 ? "evento pasado" : "eventos pasados"), /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 8, alignItems: "center" } }, "Cargar como", /* @__PURE__ */ React.createElement("select", { value: type, onChange: (e) => setType(e.target.value), style: { ...inputStyle, padding: "5px 8px" } }, TYPES.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l)))), toImport.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 160, overflowY: "auto", borderTop: `1px solid ${HAIRLINE}`, paddingTop: 6, display: "flex", flexDirection: "column", gap: 3 } }, toImport.slice(0, 40).map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: 12, color: CHARCOAL, display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("span", { style: { color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } }, shortDate(e.date), e.time ? " " + e.time : ""), /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.title, e.rule ? " ↻" : ""))), toImport.length > 40 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED } }, "y ", toImport.length - 40, " más…"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: btnGhost }, "Cancelar"), mode === "backup" && backup ? /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onRestore(backup), style: { ...btnPrimary, background: SAGE } }, /* @__PURE__ */ React.createElement(Check, { size: 14 }), " Restaurar todo") : /* @__PURE__ */ React.createElement("button", { type: "button", disabled: !toImport.length, onClick: () => onImport(toImport, type, series, fromCopahue), style: { ...btnPrimary, opacity: toImport.length ? 1 : 0.5 } }, /* @__PURE__ */ React.createElement(Check, { size: 14 }), " Importar ", toImport.length || "", " ", toImport.length === 1 ? "evento" : "eventos"))));
   }
-  function DeleteAllModal({ userName, onClose, onConfirm }) {
+  function DeleteAllModal({ userName, sharedCount, onClose, onConfirm }) {
     const [text, setText] = useState6("");
+    const [alsoShared, setAlsoShared] = useState6(true);
     const ok = text.trim().toUpperCase() === "ELIMINAR";
-    return /* @__PURE__ */ React.createElement(Modal, { onClose, width: 440 }, /* @__PURE__ */ React.createElement("div", { style: { height: 6, background: CLAY } }), /* @__PURE__ */ React.createElement("div", { style: { padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18, color: CLAY } }, "Eliminar todos mis datos"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: iconBtn, "aria-label": "Cerrar" }, /* @__PURE__ */ React.createElement(X, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: CHARCOAL, lineHeight: 1.5 } }, "Se borra toda la agenda de ", /* @__PURE__ */ React.createElement("b", null, userName), ": tareas, reuniones, avisos, series, notas, tablero y notificaciones. Lo que compartiste deja de verse para los demás. ", /* @__PURE__ */ React.createElement("b", null, "No se puede deshacer.")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: MUTED } }, "Tu usuario y tu clave se mantienen. Lo que otros te compartieron sigue apareciendo."), /* @__PURE__ */ React.createElement("label", { htmlFor: "del-confirm", style: { fontSize: 12.5, color: INK_LIGHT } }, "Para confirmar, escribí ", /* @__PURE__ */ React.createElement("b", null, "ELIMINAR")), /* @__PURE__ */ React.createElement("input", { id: "del-confirm", value: text, autoFocus: true, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && ok && onConfirm(), style: inputStyle }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: btnGhost }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { type: "button", disabled: !ok, onClick: onConfirm, style: { ...btnPrimary, background: CLAY, opacity: ok ? 1 : 0.45 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }), " Eliminar todo"))));
+    return /* @__PURE__ */ React.createElement(Modal, { onClose, width: 440 }, /* @__PURE__ */ React.createElement("div", { style: { height: 6, background: CLAY } }), /* @__PURE__ */ React.createElement("div", { style: { padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18, color: CLAY } }, "Eliminar todos mis datos"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: iconBtn, "aria-label": "Cerrar" }, /* @__PURE__ */ React.createElement(X, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: CHARCOAL, lineHeight: 1.5 } }, "Se borra toda la agenda de ", /* @__PURE__ */ React.createElement("b", null, userName), ": tareas, reuniones, avisos, series, notas, tablero y notificaciones. Lo que compartiste deja de verse para los demás. ", /* @__PURE__ */ React.createElement("b", null, "No se puede deshacer.")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: MUTED } }, "Tu usuario y tu clave se mantienen."), sharedCount > 0 && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 6, alignItems: "flex-start", fontSize: 12.5, color: INK_LIGHT, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: alsoShared, onChange: (e) => setAlsoShared(e.target.checked), style: { marginTop: 2 } }), "Quitar también de mi agenda los ", sharedCount, " ítems que otros usuarios me compartieron (incluidos los que se repiten)"), /* @__PURE__ */ React.createElement("label", { htmlFor: "del-confirm", style: { fontSize: 12.5, color: INK_LIGHT } }, "Para confirmar, escribí ", /* @__PURE__ */ React.createElement("b", null, "ELIMINAR")), /* @__PURE__ */ React.createElement("input", { id: "del-confirm", value: text, autoFocus: true, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && ok && onConfirm(alsoShared), style: inputStyle }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: btnGhost }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { type: "button", disabled: !ok, onClick: () => onConfirm(alsoShared), style: { ...btnPrimary, background: CLAY, opacity: ok ? 1 : 0.45 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }), " Eliminar todo"))));
   }
   function PasswordModal({ backend, onClose, onDone }) {
     const [cur, setCur] = useState6("");
@@ -2896,10 +2983,11 @@
       });
       if (target !== iso) goTo(target);
     };
-    const deleteSeries = (tplId) => update((d) => {
+    const deleteSeries = (tplId, fromIso) => update((d) => {
       d.templates = d.templates.filter((t) => t.id !== tplId);
+      const from = fromIso && fromIso < todayISO ? fromIso : todayISO;
       for (const iso of Object.keys(d.days)) {
-        if (iso < todayISO) continue;
+        if (iso < from) continue;
         d.days[iso] = d.days[iso].filter((t) => !(t.recurringId === tplId && !t.completed));
         if (!d.days[iso].length) delete d.days[iso];
       }
@@ -2933,7 +3021,67 @@
       setView("week");
       goTo(iso);
     };
-    const importICS = (events, type, seriesCount) => {
+    const restoreBackup = (bk) => {
+      const src = normalizeDoc(clone(bk));
+      update((d) => {
+        (src.board.columns || []).forEach((c) => {
+          const ex = d.board.columns.find((x) => x.id === c.id || (x.name || "").toLowerCase() === (c.name || "").toLowerCase());
+          if (!ex) d.board.columns.push({ ...c });
+          else if (c.isDone && !ex.isDone) ex.isDone = true;
+        });
+        mergeLegacy(d, legacyFromDoc(src));
+      });
+      setIcsOpen(false);
+      setNotice("Listo: se restauró la copia de la agenda (tareas, series, notas y tablero).");
+    };
+    const importICS = (events, type, seriesCount, fromCopahue) => {
+      if (fromCopahue) {
+        const g = groupCopahueEvents(events);
+        let n = 0;
+        update((d) => {
+          d.icsImported || (d.icsImported = {});
+          const mkBase = (ev) => ({ title: ev.title, time: ev.time || "", type, person: "", notes: ev.notes || void 0, importance: "media", urgency: "media", reminder: { enabled: false, lead: "same" }, alarm: { enabled: ev.alarmMin != null && !!ev.time, minutes: ev.alarmMin || 0 } });
+          g.tasks.forEach((ev) => {
+            const exists = Object.values(d.days).some((l) => l.some((t) => t.id === ev.id));
+            if (exists) return;
+            materializeDay(d, ev.date, todayISO);
+            d.days[ev.date] = [...d.days[ev.date] || [], { id: ev.id || uid(), ...mkBase(ev), repeat: "none", carryOver: false, completed: false, topics: type === "reunion" ? [] : void 0 }].sort(byTime);
+            n++;
+          });
+          g.series.forEach((sr) => {
+            if (d.templates.some((t) => t.id === sr.id)) return;
+            const rep = inferRepeat(sr.dates);
+            if (rep && rep.repeat !== "none") {
+              d.templates.push({ id: sr.id, ...mkBase(sr.ev), repeat: rep.repeat, every: rep.every, startDate: [...sr.dates].sort()[0] });
+            } else {
+              sr.dates.forEach((iso) => {
+                materializeDay(d, iso, todayISO);
+                d.days[iso] = [...d.days[iso] || [], { id: uid(), ...mkBase(sr.ev), repeat: "none", completed: false }].sort(byTime);
+              });
+            }
+            n++;
+          });
+          if (g.cards.length) {
+            let col = d.board.columns.find((c) => c.name === "Importadas del calendario");
+            if (!col) {
+              col = { id: uid(), name: "Importadas del calendario", color: "#4F7396" };
+              d.board.columns.unshift(col);
+            }
+            g.cards.forEach((cd) => {
+              if (d.board.cards.some((c) => c.id === cd.id)) return;
+              const dates = [...cd.dates].sort();
+              const rep = inferRepeat(dates) || { repeat: "none" };
+              const max = d.board.cards.filter((c) => c.columnId === col.id).reduce((m, c) => Math.max(m, c.order || 0), 0);
+              d.board.cards.push({ id: cd.id, columnId: col.id, title: cd.ev.title, notes: cd.ev.notes || "", date: dates[0], time: cd.ev.time || "", repeat: rep.repeat, every: rep.every, alarm: { enabled: cd.ev.alarmMin != null && !!cd.ev.time, minutes: cd.ev.alarmMin || 0 }, doneDates: {}, done: false, order: max + 1, createdAt: Date.now() });
+              n++;
+            });
+          }
+          events.forEach((ev) => ev.uid && (d.icsImported[ev.uid] = Date.now()));
+        });
+        setIcsOpen(false);
+        setNotice(`Listo: se importaron ${n} ítems${g.cards.length ? `, ${g.cards.length} de ellos al tablero (columna «Importadas del calendario»)` : ""}.`);
+        return;
+      }
       let singles = 0, series = 0;
       update((d) => {
         d.icsImported || (d.icsImported = {});
@@ -2964,9 +3112,14 @@
       setIcsOpen(false);
       setNotice(`Listo: se importaron ${events.length} ${events.length === 1 ? "evento" : "eventos"} del calendario${seriesCount ? ` (${seriesCount} con repetición)` : ""}.`);
     };
-    const deleteAll = () => {
+    const deleteAll = (alsoShared) => {
       update((d) => {
-        const keep = { sharedKnown: d.sharedKnown, sharedSeen: d.sharedSeen, sharedStatus: d.sharedStatus };
+        const keep = { sharedKnown: d.sharedKnown, sharedSeen: d.sharedSeen, sharedStatus: d.sharedStatus || {} };
+        if (alsoShared) sharedIn.forEach((i) => {
+          var _a, _b;
+          ((_a = keep.sharedStatus)[_b = i.id] || (_a[_b] = {})).hidden = true;
+          (keep.sharedSeen || (keep.sharedSeen = {}))[i.id] = true;
+        });
         Object.keys(d).forEach((k) => delete d[k]);
         Object.assign(d, emptyDoc(), keep);
         Object.keys(d).forEach((k) => d[k] === void 0 && delete d[k]);
@@ -2984,12 +3137,10 @@
         list.forEach((t) => {
           var _a;
           if (t.skipped || t.completed) return;
-          if (!(t.reminder && t.reminder.enabled) && !(t.alarm && t.alarm.enabled)) return;
-          items.push({ uid: t.id, iso, time: t.time, title: t.title, desc: [t.person, t.notes].filter(Boolean).join(" · "), leadDays: t.reminder && t.reminder.enabled ? (_a = LEAD_DAYS[t.reminder.lead]) != null ? _a : 0 : null, alarmMin: t.alarm && t.alarm.enabled && t.time ? t.alarm.minutes || 0 : null });
+          items.push({ uid: t.recurringId ? `${t.recurringId}-${iso}` : t.id, iso, time: t.time, title: t.title, desc: [t.person, t.notes].filter(Boolean).join(" · "), leadDays: t.reminder && t.reminder.enabled ? (_a = LEAD_DAYS[t.reminder.lead]) != null ? _a : 0 : null, alarmMin: t.alarm && t.alarm.enabled && t.time ? t.alarm.minutes || 0 : null });
         });
       }
       doc.templates.forEach((tpl) => {
-        if (!(tpl.reminder && tpl.reminder.enabled) && !(tpl.alarm && tpl.alarm.enabled)) return;
         occurrencesInRange(tpl, todayISO, horizon).forEach((iso) => {
           var _a;
           if ((doc.days[iso] || []).some((t) => t.recurringId === tpl.id)) return;
@@ -3012,7 +3163,8 @@
           items.push({ uid: `sh-${i.id}-${iso}`, iso, time: i.time, title: i.title, desc: `Compartido por ${i.ownerName}`, leadDays: i.reminder && i.reminder.enabled ? (_a = LEAD_DAYS[i.reminder.lead]) != null ? _a : 0 : null, alarmMin: i.alarm && i.alarm.enabled && i.time && !st.muted ? i.alarm.minutes || 0 : null });
         });
       });
-      downloadText(`agenda-${user.name.toLowerCase().replace(/\s+/g, "-")}.ics`, buildICS(items));
+      const { notifications, alarmsFired, sharedKnown, sharedSeen, sharedStatus, icsImported, ...backup } = doc;
+      downloadText(`agenda-${user.name.toLowerCase().replace(/\s+/g, "-")}.ics`, buildICS(items, { app: "agenda-copahue", v: 2, exportedAt: Date.now(), doc: backup }));
       setMenuOpen(false);
     };
     if (loadErr)
@@ -3220,7 +3372,12 @@
             expanded: !!expanded[t.id],
             onToggleExpand: () => setExpanded((p) => ({ ...p, [t.id]: !p[t.id] })),
             onToggleComplete: () => patchTask(selected, t.id, (tt) => tt.completed = !tt.completed),
-            onDelete: () => deleteTask(selected, t),
+            onDelete: (scope) => {
+              if (scope === "series" && t.recurringId) {
+                deleteSeries(t.recurringId, selected);
+                setNotice(`Se eliminó la serie “${t.title}” (desde hoy en adelante).`);
+              } else deleteTask(selected, t);
+            },
             onSave: (v) => saveTaskEdit(selected, t, { ...v, sharedWith: v.sharedWith }),
             onAddTopic: (text) => patchTask(selected, t.id, (tt) => tt.topics = [...tt.topics || [], { id: uid(), text: text.trim(), done: false }]),
             onToggleTopic: (tid) => patchTask(selected, t.id, (tt) => tt.topics = tt.topics.map((tp) => tp.id === tid ? { ...tp, done: !tp.done } : tp)),
@@ -3287,7 +3444,7 @@
           d.sharedSeen[id] = true;
         })
       }
-    ), view === "notes" && /* @__PURE__ */ React.createElement(NotesView, { doc, update, onSendToAgenda: sendNoteToAgenda }), icsOpen && /* @__PURE__ */ React.createElement(ImportICSModal, { todayISO, importedUids: doc.icsImported || {}, onClose: () => setIcsOpen(false), onImport: importICS }), delOpen && /* @__PURE__ */ React.createElement(DeleteAllModal, { userName: user.name, onClose: () => setDelOpen(false), onConfirm: deleteAll }), pwOpen && /* @__PURE__ */ React.createElement(PasswordModal, { backend, onClose: () => setPwOpen(false), onDone: () => {
+    ), view === "notes" && /* @__PURE__ */ React.createElement(NotesView, { doc, update, onSendToAgenda: sendNoteToAgenda }), icsOpen && /* @__PURE__ */ React.createElement(ImportICSModal, { todayISO, importedUids: doc.icsImported || {}, onClose: () => setIcsOpen(false), onImport: importICS, onRestore: restoreBackup }), delOpen && /* @__PURE__ */ React.createElement(DeleteAllModal, { userName: user.name, sharedCount: sharedIn.filter((i) => !(doc.sharedStatus[i.id] || {}).hidden).length, onClose: () => setDelOpen(false), onConfirm: deleteAll }), pwOpen && /* @__PURE__ */ React.createElement(PasswordModal, { backend, onClose: () => setPwOpen(false), onDone: () => {
       setPwOpen(false);
       setNotice("Listo: tu clave se cambió. La próxima vez que ingreses usá la nueva.");
     } }), /* @__PURE__ */ React.createElement(Toasts, { toasts, onClose: (id) => setToasts((t) => t.filter((x) => x.id !== id)), onOpen: openNotif }), ringing.length > 0 && /* @__PURE__ */ React.createElement(AlarmOverlay, { ringing, onStop: stopAlarm, onSnooze: snoozeAlarm, onDone: doneAlarm }));
