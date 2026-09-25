@@ -203,6 +203,7 @@
   var byTime = (a, b) => (a.time || "99:99").localeCompare(b.time || "99:99");
   function isOccurrence(rule, iso) {
     if (!rule || !rule.startDate || iso < rule.startDate) return false;
+    if (rule.endDate && iso > rule.endDate) return false;
     const repeat = rule.repeat || "none";
     if (repeat === "none") return iso === rule.startDate;
     const d = fromISO(iso);
@@ -725,6 +726,132 @@
       doc.board.cards.push({ ...rest, columnId: col.id });
       cIds.add(c.id);
     });
+  }
+  function icsUnescape(v) {
+    return String(v || "").replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1").trim();
+  }
+  function icsWhen(value, params) {
+    const v = String(value || "").trim();
+    const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/);
+    if (!m) return null;
+    if (!m[4] || /VALUE=DATE(?!-)/i.test(params || "")) return { date: `${m[1]}-${m[2]}-${m[3]}`, time: "", allDay: true };
+    if (m[7]) {
+      const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)));
+      return { date: toISO(d), time: `${pad(d.getHours())}:${pad(d.getMinutes())}`, allDay: false };
+    }
+    return { date: `${m[1]}-${m[2]}-${m[3]}`, time: `${m[4]}:${m[5]}`, allDay: false };
+  }
+  function icsDuration(v) {
+    const m = String(v || "").match(/^(-)?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/);
+    if (!m) return null;
+    const min = +(m[2] || 0) * 10080 + +(m[3] || 0) * 1440 + +(m[4] || 0) * 60 + +(m[5] || 0);
+    return m[1] || min === 0 ? min : null;
+  }
+  var ICS_DAYS = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  function parseICS(text) {
+    const raw = String(text || "").replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "");
+    const lines = raw.split("\n");
+    const events = [];
+    let ev = null;
+    let inAlarm = false;
+    for (const line of lines) {
+      const idx = line.indexOf(":");
+      if (idx < 0) continue;
+      const left = line.slice(0, idx);
+      const value = line.slice(idx + 1);
+      const [name, ...paramsArr] = left.split(";");
+      const key = name.toUpperCase();
+      const params = paramsArr.join(";");
+      if (key === "BEGIN" && value.trim().toUpperCase() === "VEVENT") {
+        ev = { alarms: [] };
+        continue;
+      }
+      if (key === "END" && value.trim().toUpperCase() === "VEVENT") {
+        if (ev) events.push(ev);
+        ev = null;
+        continue;
+      }
+      if (!ev) continue;
+      if (key === "BEGIN" && value.trim().toUpperCase() === "VALARM") {
+        inAlarm = true;
+        continue;
+      }
+      if (key === "END" && value.trim().toUpperCase() === "VALARM") {
+        inAlarm = false;
+        continue;
+      }
+      if (inAlarm) {
+        if (key === "TRIGGER" && !/VALUE=DATE-TIME/i.test(params)) {
+          const mm = icsDuration(value.trim());
+          if (mm != null) ev.alarms.push(mm);
+        }
+        continue;
+      }
+      if (key === "SUMMARY") ev.title = icsUnescape(value);
+      else if (key === "DESCRIPTION") ev.desc = icsUnescape(value);
+      else if (key === "LOCATION") ev.location = icsUnescape(value);
+      else if (key === "UID") ev.uid = value.trim();
+      else if (key === "STATUS") ev.status = value.trim().toUpperCase();
+      else if (key === "DTSTART") ev.start = icsWhen(value, params);
+      else if (key === "RRULE") {
+        const r = {};
+        value.split(";").forEach((kv) => {
+          const [k, v] = kv.split("=");
+          if (k) r[k.toUpperCase()] = v;
+        });
+        ev.rrule = r;
+      }
+    }
+    return events.filter((e) => e.start && e.status !== "CANCELLED").map((e) => {
+      const r = e.rrule;
+      let rule = null;
+      if (r && r.FREQ) {
+        const interval = Math.max(1, parseInt(r.INTERVAL || "1", 10) || 1);
+        let until = null;
+        if (r.UNTIL) {
+          const u = icsWhen(r.UNTIL, "");
+          if (u) until = u.date;
+        }
+        rule = { freq: r.FREQ.toUpperCase(), interval, byday: r.BYDAY ? r.BYDAY.split(",").map((d) => d.replace(/^[-+]?\d+/, "").toUpperCase()).filter((d) => d in ICS_DAYS) : [], until, count: r.COUNT ? parseInt(r.COUNT, 10) : null };
+      }
+      return {
+        uid: e.uid || "",
+        title: e.title || "(Sin título)",
+        date: e.start.date,
+        time: e.start.time,
+        notes: [e.location ? "Lugar: " + e.location : "", e.desc || ""].filter(Boolean).join("\n").slice(0, 2e3),
+        alarmMin: e.alarms.length ? Math.min(...e.alarms) : null,
+        rule
+      };
+    });
+  }
+  function icsToRules(ev) {
+    const r = ev.rule;
+    if (!r) return [{ startDate: ev.date, repeat: "none" }];
+    const endFromCount = (stepDays) => r.count ? addDaysISO(ev.date, stepDays * (r.count - 1)) : null;
+    const end = (x) => r.until || x || void 0;
+    if (r.freq === "DAILY") {
+      return [{ startDate: ev.date, repeat: r.interval === 1 ? "daily" : "everyN", every: r.interval, endDate: end(endFromCount(r.interval)) }];
+    }
+    if (r.freq === "WEEKLY") {
+      const days = r.byday.length ? r.byday : [Object.keys(ICS_DAYS).find((k) => ICS_DAYS[k] === fromISO(ev.date).getDay())];
+      const weeks = r.count ? Math.ceil(r.count / days.length) : null;
+      return days.map((dname) => {
+        let start = ev.date;
+        for (let i = 0; i < 7 && fromISO(start).getDay() !== ICS_DAYS[dname]; i++) start = addDaysISO(start, 1);
+        const every = 7 * r.interval;
+        return { startDate: start, repeat: r.interval === 1 ? "weekly" : "everyN", every: r.interval === 1 ? void 0 : every, endDate: end(weeks ? addDaysISO(start, every * (weeks - 1)) : null) };
+      });
+    }
+    if (r.freq === "MONTHLY") {
+      const e = r.count ? toISO(new Date(fromISO(ev.date).getFullYear(), fromISO(ev.date).getMonth() + r.interval * (r.count - 1), fromISO(ev.date).getDate())) : null;
+      return [{ startDate: ev.date, repeat: "monthly", endDate: end(e) }];
+    }
+    if (r.freq === "YEARLY") {
+      const e = r.count ? toISO(new Date(fromISO(ev.date).getFullYear() + r.interval * (r.count - 1), fromISO(ev.date).getMonth(), fromISO(ev.date).getDate())) : null;
+      return [{ startDate: ev.date, repeat: "yearly", endDate: end(e) }];
+    }
+    return [{ startDate: ev.date, repeat: "none" }];
   }
 
   // src/logo.js
@@ -2079,6 +2206,42 @@
     const onKey = (e) => e.key === "Enter" && submit();
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 420, margin: "6vh auto 0", borderRadius: 14, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" } }, /* @__PURE__ */ React.createElement("div", { style: { background: INK, padding: "26px 26px 22px", textAlign: "center" } }, /* @__PURE__ */ React.createElement("img", { src: HOTEL_LOGO, alt: "Hotel Copahue", style: { height: 62, width: "auto", maxWidth: "100%" } }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 24, color: BRASS_LIGHT, marginTop: 10 } }, "Agenda Coordinación Operativa"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", background: INK_LIGHT, borderRadius: 9, padding: 3, marginTop: 18 } }, tabBtn("login", "Ingresar"), tabBtn("register", "Crear usuario"))), /* @__PURE__ */ React.createElement("div", { style: { background: PARCHMENT, padding: "20px 26px 24px", display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: INK_LIGHT } }, "Nombre de usuario"), /* @__PURE__ */ React.createElement("input", { value: name, onChange: (e) => setName(e.target.value), onKeyDown: onKey, autoFocus: true, placeholder: "Ej: Giuliano", autoComplete: "username", style: inputStyle }), /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: INK_LIGHT } }, "Clave"), /* @__PURE__ */ React.createElement("input", { type: "password", value: pass, onChange: (e) => setPass(e.target.value), onKeyDown: onKey, autoComplete: tab === "login" ? "current-password" : "new-password", style: inputStyle }), tab === "register" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, color: INK_LIGHT } }, "Repetir clave"), /* @__PURE__ */ React.createElement("input", { type: "password", value: pass2, onChange: (e) => setPass2(e.target.value), onKeyDown: onKey, autoComplete: "new-password", style: inputStyle })), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: CLAY, background: "#F6E3DD", borderRadius: 7, padding: "7px 10px" } }, err), backend.mode === "firebase" && pendingLocal.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#3E5F80", background: "#E3EBF3", borderRadius: 7, padding: "8px 10px", lineHeight: 1.45 } }, "En este navegador hay usuarios que todavía no están en la nube: ", /* @__PURE__ */ React.createElement("b", null, pendingLocal.map((u) => u.name).join(", ")), ". Ingresá con tu nombre y clave de siempre y tu agenda se pasa a la nube automáticamente."), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: submit, disabled: busy, style: { ...btnPrimary, justifyContent: "center", padding: "10px 14px", marginTop: 6 } }, busy && /* @__PURE__ */ React.createElement(Loader2, { size: 14 }), " ", tab === "login" ? "Ingresar" : "Crear usuario e ingresar"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED, marginTop: 6, lineHeight: 1.45 } }, backend.mode !== "local" ? "Cada usuario tiene su propia agenda. Los datos se guardan en la nube, así que podés entrar desde cualquier dispositivo." : "Atención: no se pudo conectar con la base de datos en la nube. En este modo los usuarios y datos quedan guardados solo en este navegador.")));
   }
+  function ImportICSModal({ onClose, onImport, importedUids, todayISO }) {
+    const [events, setEvents] = useState6(null);
+    const [fileName, setFileName] = useState6("");
+    const [err, setErr] = useState6("");
+    const [includePast, setIncludePast] = useState6(false);
+    const [type, setType] = useState6("tarea");
+    const readFile = (f) => {
+      if (!f) return;
+      setErr("");
+      setFileName(f.name);
+      const rd = new FileReader();
+      rd.onload = () => {
+        try {
+          const evs = parseICS(String(rd.result || ""));
+          if (!evs.length) setErr("No se encontraron eventos en el archivo. Revisá que sea un calendario .ics.");
+          setEvents(evs);
+        } catch (e) {
+          setErr("No se pudo leer el archivo.");
+        }
+      };
+      rd.onerror = () => setErr("No se pudo leer el archivo.");
+      rd.readAsText(f);
+    };
+    const isPast = (e) => e.rule ? !!(e.rule.until && e.rule.until < todayISO) : e.date < todayISO;
+    const dup = events ? events.filter((e) => e.uid && importedUids[e.uid]).length : 0;
+    const past = events ? events.filter((e) => !(e.uid && importedUids[e.uid]) && isPast(e)).length : 0;
+    const toImport = events ? events.filter((e) => !(e.uid && importedUids[e.uid]) && (includePast || !isPast(e))) : [];
+    const series = toImport.filter((e) => e.rule).length;
+    const lbl = { fontSize: 12.5, color: INK_LIGHT };
+    return /* @__PURE__ */ React.createElement(Modal, { onClose, width: 460 }, /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 20px", display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18 } }, "Importar calendario (.ics)"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: iconBtn, "aria-label": "Cerrar" }, /* @__PURE__ */ React.createElement(X, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: MUTED, lineHeight: 1.45 } }, "Elegí un archivo .ics exportado de Google Calendar, Outlook, el calendario del celular u otra agenda. Los eventos se agregan a tu semana; los que se repiten se cargan como series."), /* @__PURE__ */ React.createElement("label", { style: { ...btnGhost, justifyContent: "center", background: "#fff", cursor: "pointer" } }, /* @__PURE__ */ React.createElement(Download, { size: 14, style: { transform: "rotate(180deg)" } }), " ", fileName ? "Cambiar archivo" : "Elegir archivo .ics", /* @__PURE__ */ React.createElement("input", { id: "ics-file", type: "file", accept: ".ics,text/calendar", onChange: (e) => readFile(e.target.files && e.target.files[0]), style: { display: "none" } })), fileName && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: INK_LIGHT } }, "Archivo: ", /* @__PURE__ */ React.createElement("b", null, fileName)), err && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: CLAY, background: "#F6E3DD", borderRadius: 7, padding: "7px 10px" } }, err), events && events.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: `1px solid ${HAIRLINE}`, borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, fontSize: 13 } }, /* @__PURE__ */ React.createElement("div", null, "Se encontraron ", /* @__PURE__ */ React.createElement("b", null, events.length), " eventos", dup ? ` (${dup} ya estaban importados y se omiten)` : "", "."), past > 0 && /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: includePast, onChange: (e) => setIncludePast(e.target.checked) }), "Incluir también ", past, " ", past === 1 ? "evento pasado" : "eventos pasados"), /* @__PURE__ */ React.createElement("label", { style: { ...lbl, display: "flex", gap: 8, alignItems: "center" } }, "Cargar como", /* @__PURE__ */ React.createElement("select", { value: type, onChange: (e) => setType(e.target.value), style: { ...inputStyle, padding: "5px 8px" } }, TYPES.map(([v, l]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, l)))), toImport.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 160, overflowY: "auto", borderTop: `1px solid ${HAIRLINE}`, paddingTop: 6, display: "flex", flexDirection: "column", gap: 3 } }, toImport.slice(0, 40).map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: 12, color: CHARCOAL, display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("span", { style: { color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } }, shortDate(e.date), e.time ? " " + e.time : ""), /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.title, e.rule ? " ↻" : ""))), toImport.length > 40 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: MUTED } }, "y ", toImport.length - 40, " más…"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: btnGhost }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { type: "button", disabled: !toImport.length, onClick: () => onImport(toImport, type, series), style: { ...btnPrimary, opacity: toImport.length ? 1 : 0.5 } }, /* @__PURE__ */ React.createElement(Check, { size: 14 }), " Importar ", toImport.length || "", " ", toImport.length === 1 ? "evento" : "eventos"))));
+  }
+  function DeleteAllModal({ userName, onClose, onConfirm }) {
+    const [text, setText] = useState6("");
+    const ok = text.trim().toUpperCase() === "ELIMINAR";
+    return /* @__PURE__ */ React.createElement(Modal, { onClose, width: 440 }, /* @__PURE__ */ React.createElement("div", { style: { height: 6, background: CLAY } }), /* @__PURE__ */ React.createElement("div", { style: { padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18, color: CLAY } }, "Eliminar todos mis datos"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: iconBtn, "aria-label": "Cerrar" }, /* @__PURE__ */ React.createElement(X, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: CHARCOAL, lineHeight: 1.5 } }, "Se borra toda la agenda de ", /* @__PURE__ */ React.createElement("b", null, userName), ": tareas, reuniones, avisos, series, notas, tablero y notificaciones. Lo que compartiste deja de verse para los demás. ", /* @__PURE__ */ React.createElement("b", null, "No se puede deshacer.")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: MUTED } }, "Tu usuario y tu clave se mantienen. Lo que otros te compartieron sigue apareciendo."), /* @__PURE__ */ React.createElement("label", { htmlFor: "del-confirm", style: { fontSize: 12.5, color: INK_LIGHT } }, "Para confirmar, escribí ", /* @__PURE__ */ React.createElement("b", null, "ELIMINAR")), /* @__PURE__ */ React.createElement("input", { id: "del-confirm", value: text, autoFocus: true, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && ok && onConfirm(), style: inputStyle }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 } }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: btnGhost }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { type: "button", disabled: !ok, onClick: onConfirm, style: { ...btnPrimary, background: CLAY, opacity: ok ? 1 : 0.45 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }), " Eliminar todo"))));
+  }
   function PasswordModal({ backend, onClose, onDone }) {
     const [cur, setCur] = useState6("");
     const [n1, setN1] = useState6("");
@@ -2117,7 +2280,12 @@
     const [users, setUsers] = useState6([]);
     const [shared, setShared] = useState6([]);
     const [view, setView] = useState6("week");
-    const [weekStart, setWeekStart] = useState6(mondayOf(today));
+    const centerStart = (d) => {
+      const r = addDays(d, -3);
+      r.setHours(0, 0, 0, 0);
+      return r;
+    };
+    const [weekStart, setWeekStart] = useState6(() => centerStart(today));
     const [selected, setSelected] = useState6(todayISO);
     const [expanded, setExpanded] = useState6({});
     const [formOpen, setFormOpen] = useState6(false);
@@ -2127,6 +2295,8 @@
     const [calMode, setCalMode] = useState6("week");
     const [toasts, setToasts] = useState6([]);
     const [pwOpen, setPwOpen] = useState6(false);
+    const [icsOpen, setIcsOpen] = useState6(false);
+    const [delOpen, setDelOpen] = useState6(false);
     const [summaryCollapsed, setSummaryCollapsed] = useState6(() => !!ls.get(P2 + "summaryCollapsed:" + user.id, false));
     const [monthCursor, setMonthCursor] = useState6(new Date(today.getFullYear(), today.getMonth(), 1));
     const [now, setNow] = useState6(/* @__PURE__ */ new Date());
@@ -2604,8 +2774,8 @@
     };
     const goTo = (iso) => {
       setSelected(iso);
-      const m = mondayOf(fromISO(iso));
-      if (toISO(m) !== toISO(weekStart)) setWeekStart(m);
+      const inView = iso >= toISO(weekStart) && iso <= toISO(addDays(weekStart, 6));
+      if (!inView) setWeekStart(centerStart(fromISO(iso)));
     };
     const addTask = (v) => {
       const iso = selected;
@@ -2762,6 +2932,49 @@
       });
       setView("week");
       goTo(iso);
+    };
+    const importICS = (events, type, seriesCount) => {
+      let singles = 0, series = 0;
+      update((d) => {
+        d.icsImported || (d.icsImported = {});
+        events.forEach((ev) => {
+          if (ev.uid && d.icsImported[ev.uid]) return;
+          const alarm = { enabled: ev.alarmMin != null && !!ev.time, minutes: ev.alarmMin || 0 };
+          const base = { title: ev.title, time: ev.time || "", type, person: "", notes: ev.notes || void 0, importance: "media", urgency: "media", reminder: { enabled: false, lead: "same" }, alarm };
+          icsToRules(ev).forEach((rule) => {
+            if (rule.repeat === "none") {
+              materializeDay(d, rule.startDate, todayISO);
+              const tid = uid();
+              if (alarm.enabled) {
+                const [h, m] = ev.time.split(":").map(Number);
+                const at = fromISO(rule.startDate);
+                at.setHours(h, m, 0, 0);
+                if (at.getTime() - (alarm.minutes || 0) * 6e4 < Date.now()) (d.alarmsFired || (d.alarmsFired = {}))[`t:${tid}:${rule.startDate}`] = Date.now();
+              }
+              d.days[rule.startDate] = [...d.days[rule.startDate] || [], { id: tid, ...base, repeat: "none", carryOver: false, completed: false, topics: type === "reunion" ? [] : void 0, icsUid: ev.uid || void 0 }].sort(byTime);
+              singles++;
+            } else {
+              d.templates.push({ id: uid(), ...base, repeat: rule.repeat, every: rule.every, startDate: rule.startDate, endDate: rule.endDate, icsUid: ev.uid || void 0 });
+              series++;
+            }
+          });
+          if (ev.uid) d.icsImported[ev.uid] = Date.now();
+        });
+      });
+      setIcsOpen(false);
+      setNotice(`Listo: se importaron ${events.length} ${events.length === 1 ? "evento" : "eventos"} del calendario${seriesCount ? ` (${seriesCount} con repetición)` : ""}.`);
+    };
+    const deleteAll = () => {
+      update((d) => {
+        const keep = { sharedKnown: d.sharedKnown, sharedSeen: d.sharedSeen, sharedStatus: d.sharedStatus };
+        Object.keys(d).forEach((k) => delete d[k]);
+        Object.assign(d, emptyDoc(), keep);
+        Object.keys(d).forEach((k) => d[k] === void 0 && delete d[k]);
+        normalizeDoc(d);
+      });
+      setDelOpen(false);
+      setExpanded({});
+      setNotice("Se eliminaron todos los datos de tu agenda.");
     };
     const exportICS = () => {
       const horizon = addDaysISO(todayISO, 120);
@@ -2921,31 +3134,37 @@
           d.notifications = [];
         })
       }
-    ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "acp-userbtn", "aria-label": "Menú de " + user.name, title: user.name, onClick: () => setMenuOpen((o) => !o), style: { display: "flex", alignItems: "center", gap: 8, background: INK_LIGHT, border: "none", borderRadius: 20, padding: "5px 12px 5px 6px", color: PAPER, cursor: "pointer", fontFamily: "inherit", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 26, height: 26, borderRadius: 13, background: BRASS, color: INK, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, fontSize: 12.5 } }, user.name.slice(0, 1).toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "acp-username" }, user.name), /* @__PURE__ */ React.createElement(ChevronDown, { size: 13, className: "acp-username" })), menuOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { onClick: () => setMenuOpen(false), style: { position: "fixed", inset: 0, zIndex: 30 } }), /* @__PURE__ */ React.createElement("div", { className: "acp-pop", style: { position: "absolute", right: 0, top: 40, zIndex: 31, background: PAPER, borderRadius: 10, boxShadow: "0 12px 34px rgba(0,0,0,0.3)", padding: 6, width: 270 } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "8px 12px 10px", fontSize: 11.5, color: MUTED, borderBottom: `1px solid ${HAIRLINE}`, marginBottom: 4, display: "flex", gap: 6, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement(Cloud, { size: 13, style: { marginTop: 1 } }), backend.mode !== "local" ? "Guardado en la nube: podés entrar desde cualquier dispositivo." : "Modo local: no hay conexión con la base de datos, los datos quedan solo en este navegador."), notifPerm !== "granted" && notifPerm !== "unsupported" && /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: askNotif }, /* @__PURE__ */ React.createElement(Bell, { size: 14 }), " Activar notificaciones del navegador"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: testAlarm }, /* @__PURE__ */ React.createElement(AlarmClock, { size: 14 }), " Probar alarma"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: exportICS }, /* @__PURE__ */ React.createElement(Download, { size: 14 }), " Exportar a calendario (.ics)"), legacy && /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: () => {
+    ), /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "acp-userbtn", "aria-label": "Menú de " + user.name, title: user.name, onClick: () => setMenuOpen((o) => !o), style: { display: "flex", alignItems: "center", gap: 8, background: INK_LIGHT, border: "none", borderRadius: 20, padding: "5px 12px 5px 6px", color: PAPER, cursor: "pointer", fontFamily: "inherit", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 26, height: 26, borderRadius: 13, background: BRASS, color: INK, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, fontSize: 12.5 } }, user.name.slice(0, 1).toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "acp-username" }, user.name), /* @__PURE__ */ React.createElement(ChevronDown, { size: 13, className: "acp-username" })), menuOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { onClick: () => setMenuOpen(false), style: { position: "fixed", inset: 0, zIndex: 30 } }), /* @__PURE__ */ React.createElement("div", { className: "acp-pop", style: { position: "absolute", right: 0, top: 40, zIndex: 31, background: PAPER, borderRadius: 10, boxShadow: "0 12px 34px rgba(0,0,0,0.3)", padding: 6, width: 270 } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "8px 12px 10px", fontSize: 11.5, color: MUTED, borderBottom: `1px solid ${HAIRLINE}`, marginBottom: 4, display: "flex", gap: 6, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement(Cloud, { size: 13, style: { marginTop: 1 } }), backend.mode !== "local" ? "Guardado en la nube: podés entrar desde cualquier dispositivo." : "Modo local: no hay conexión con la base de datos, los datos quedan solo en este navegador."), notifPerm !== "granted" && notifPerm !== "unsupported" && /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: askNotif }, /* @__PURE__ */ React.createElement(Bell, { size: 14 }), " Activar notificaciones del navegador"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: testAlarm }, /* @__PURE__ */ React.createElement(AlarmClock, { size: 14 }), " Probar alarma"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: exportICS }, /* @__PURE__ */ React.createElement(Download, { size: 14 }), " Exportar a calendario (.ics)"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: () => {
+      setMenuOpen(false);
+      setIcsOpen(true);
+    } }, /* @__PURE__ */ React.createElement(Download, { size: 14, style: { transform: "rotate(180deg)" } }), " Importar calendario (.ics)"), legacy && /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: () => {
       setMenuOpen(false);
       window.scrollTo(0, 0);
     } }, /* @__PURE__ */ React.createElement(CalendarDays, { size: 14 }), " Importar datos anteriores"), /* @__PURE__ */ React.createElement("button", { type: "button", style: menuItem, onClick: () => {
       setMenuOpen(false);
       setPwOpen(true);
     } }, /* @__PURE__ */ React.createElement(UserIcon, { size: 14 }), " Cambiar clave"), /* @__PURE__ */ React.createElement("button", { type: "button", style: { ...menuItem, color: CLAY }, onClick: () => {
+      setMenuOpen(false);
+      setDelOpen(true);
+    } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }), " Eliminar todos mis datos"), /* @__PURE__ */ React.createElement("div", { style: { height: 1, background: HAIRLINE, margin: "4px 8px" } }), /* @__PURE__ */ React.createElement("button", { type: "button", style: { ...menuItem, color: CLAY }, onClick: () => {
       doSave();
       onLogout();
     } }, /* @__PURE__ */ React.createElement(LogOut, { size: 14 }), " Cerrar sesión")))))), /* @__PURE__ */ React.createElement("div", { className: "acp-navrow", style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "acp-tabs", style: { display: "flex", background: INK_LIGHT, borderRadius: 8, padding: 2 } }, tabBtn("week", "Semana"), tabBtn("board", "Tablero"), tabBtn("notes", "Notas" + (doc.backlog.length ? ` (${doc.backlog.length})` : ""))), view === "week" && /* @__PURE__ */ React.createElement("div", { className: "acp-weeknav", style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "acp-modes", style: { display: "flex", border: `1px solid ${INK_LIGHT}`, borderRadius: 8, padding: 2 } }, [["week", "Semanal"], ["month", "Mensual"]].map(([id, label]) => /* @__PURE__ */ React.createElement("button", { key: id, type: "button", "aria-label": label, title: label, onClick: () => {
       setCalMode(id);
       if (id === "month") setMonthCursor(new Date(fromISO(selected).getFullYear(), fromISO(selected).getMonth(), 1));
     }, style: { background: calMode === id ? "#5A5E64" : "transparent", color: calMode === id ? PAPER : "#C7CDD6", border: "none", borderRadius: 6, fontSize: 12, padding: "5px 10px", cursor: "pointer", fontFamily: "inherit" } }, /* @__PURE__ */ React.createElement("span", { className: "acp-lbl-full" }, label), /* @__PURE__ */ React.createElement("span", { className: "acp-lbl-short" }, id === "week" ? /* @__PURE__ */ React.createElement("b", { style: { fontSize: 14, fontVariantNumeric: "tabular-nums" } }, "7") : /* @__PURE__ */ React.createElement(CalendarDays, { size: 15 }))))), /* @__PURE__ */ React.createElement("div", { className: "acp-arrows", style: { display: "flex", alignItems: "center", gap: 8 } }, calMode === "week" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setWeekStart(addDays(weekStart, -7)), style: navBtn, "aria-label": "Semana anterior" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("button", { type: "button", className: "acp-navlabel", title: "Volver a hoy", onClick: () => {
-      setWeekStart(mondayOf(today));
+      setWeekStart(centerStart(today));
       setSelected(todayISO);
       setMonthCursor(new Date(today.getFullYear(), today.getMonth(), 1));
     }, style: { fontSize: 13, color: "#C7CDD6", minWidth: 150, textAlign: "center", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0 } }, /* @__PURE__ */ React.createElement("span", { className: "acp-lbl-full" }, weekRangeLabel()), /* @__PURE__ */ React.createElement("span", { className: "acp-lbl-short acp-navstack" }, (() => {
       const f = weekDates[0], l = weekDates[6];
       return f.getMonth() === l.getMonth() ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("b", null, f.getDate(), "–", l.getDate()), /* @__PURE__ */ React.createElement("span", null, MONTHS[f.getMonth()])) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("b", null, f.getDate(), "–", l.getDate()), /* @__PURE__ */ React.createElement("span", null, MONTHS[f.getMonth()], "/", MONTHS[l.getMonth()]));
     })())), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setWeekStart(addDays(weekStart, 7)), style: navBtn, "aria-label": "Semana siguiente" }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 }))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1)), style: navBtn, "aria-label": "Mes anterior" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("button", { type: "button", className: "acp-navlabel", title: "Volver a hoy", onClick: () => {
-      setWeekStart(mondayOf(today));
+      setWeekStart(centerStart(today));
       setSelected(todayISO);
       setMonthCursor(new Date(today.getFullYear(), today.getMonth(), 1));
     }, style: { fontSize: 13, color: "#C7CDD6", minWidth: 150, textAlign: "center", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0 } }, /* @__PURE__ */ React.createElement("span", { className: "acp-lbl-full" }, monthCursor.toLocaleDateString("es-AR", { month: "long", year: "numeric" }).replace(" de ", " ")), /* @__PURE__ */ React.createElement("span", { className: "acp-lbl-short acp-navstack" }, /* @__PURE__ */ React.createElement("b", null, MONTHS[monthCursor.getMonth()]), /* @__PURE__ */ React.createElement("span", null, monthCursor.getFullYear()))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1)), style: navBtn, "aria-label": "Mes siguiente" }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("button", { type: "button", className: "acp-today-btn", onClick: () => {
-      setWeekStart(mondayOf(today));
+      setWeekStart(centerStart(today));
       setSelected(todayISO);
       setMonthCursor(new Date(today.getFullYear(), today.getMonth(), 1));
     }, style: { ...btnBrass, padding: "7px 12px" } }, "Hoy")), /* @__PURE__ */ React.createElement("div", { className: "acp-save", style: { flex: 1 } }), /* @__PURE__ */ React.createElement("span", { className: saveState === "error" ? "" : "acp-save", style: { fontSize: 11.5, color: saveState === "error" ? "#F0A08E" : "#9EA4AD", display: "flex", alignItems: "center", gap: 5 } }, saveState === "saving" ? /* @__PURE__ */ React.createElement(Loader2, { size: 12 }) : /* @__PURE__ */ React.createElement(Cloud, { size: 12 }), " ", saveLabel))), (notice || legacy || backend.mode === "local") && /* @__PURE__ */ React.createElement("div", { style: { padding: "12px 22px 0", display: "flex", flexDirection: "column", gap: 8 } }, backend.mode === "local" && /* @__PURE__ */ React.createElement("div", { style: { background: "#F6E3DD", border: `1px solid ${CLAY}55`, borderRadius: 10, padding: "9px 12px", fontSize: 13, color: "#7A3524" } }, /* @__PURE__ */ React.createElement("b", null, "Sin conexión con la base de datos."), " Lo que cargues ahora queda solo en este navegador y no lo van a ver los demás usuarios. Revisá la conexión a internet y recargá la página."), notice && /* @__PURE__ */ React.createElement("div", { style: { background: "#FFF4DD", border: `1px solid ${BRASS}66`, borderRadius: 10, padding: "9px 12px", fontSize: 13, display: "flex", gap: 8, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("span", { style: { flex: 1 } }, notice), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setNotice(""), style: iconBtn, "aria-label": "Cerrar" }, /* @__PURE__ */ React.createElement(X, { size: 14 }))), legacy && /* @__PURE__ */ React.createElement("div", { style: { background: "#EEF3EA", border: `1px solid ${SAGE}66`, borderRadius: 10, padding: "10px 12px", fontSize: 13, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { flex: 1, minWidth: 220 } }, "Se encontraron ", /* @__PURE__ */ React.createElement("b", null, legacy.count), " ítems cargados antes (de la versión anterior o que quedaron guardados solo en este navegador). ¿Querés pasarlos a tu usuario", backend.mode !== "local" ? " en la nube" : "", "?"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => {
@@ -2978,7 +3197,7 @@
       const hasMeeting = items.some((x) => (x.task || x.item || {}).type === "reunion");
       const hasShared = items.some((x) => x.kind === "shared");
       const cardColors = [...new Set(items.filter((x) => x.kind === "card").map((x) => (cols[x.card.columnId] || {}).color).filter(Boolean))].slice(0, 4);
-      return /* @__PURE__ */ React.createElement("button", { key: iso, type: "button", className: "acp-day", onClick: () => setSelected(iso), style: { padding: "10px 6px 12px", background: isSel ? PARCHMENT : "transparent", border: "none", borderTop: isSel ? `3px solid ${BRASS}` : "3px solid transparent", borderRight: `1px solid ${HAIRLINE}`, cursor: "pointer", textAlign: "center", fontFamily: "inherit", display: "flex", flexDirection: "column", alignItems: "stretch" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: MUTED, letterSpacing: 0.3 } }, DAY_LABELS[i]), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18, marginTop: 2, color: isToday ? BRASS : CHARCOAL, fontWeight: isToday ? 600 : 500 } }, d.getDate()), /* @__PURE__ */ React.createElement("div", { className: "acp-day-badges", style: { display: "flex", justifyContent: "center", alignItems: "center", gap: 4, marginTop: 5, minHeight: 16 } }, isToday && /* @__PURE__ */ React.createElement("span", { className: "acp-today-inline", title: items.length ? `${pending} pendientes de ${items.length}` : "Hoy", style: { ...chip(BRASS, INK), padding: "1px 5px" } }, "Hoy", items.length > 0 ? `·${items.length}` : ""), items.length > 0 && /* @__PURE__ */ React.createElement("span", { className: isToday ? "acp-count-today" : "", title: `${pending} pendientes de ${items.length}`, style: { fontSize: 10.5, fontWeight: 600, color: "#fff", background: pending ? BRASS : SAGE, borderRadius: 8, padding: "1px 6px", minWidth: 15, lineHeight: "14px" } }, items.length), hasMeeting && /* @__PURE__ */ React.createElement(Users, { size: 10, color: INK_LIGHT }), hasShared && /* @__PURE__ */ React.createElement(Share, { size: 10, color: SKY }), cardColors.map((c) => /* @__PURE__ */ React.createElement("span", { key: c, className: "acp-dot", style: { width: 7, height: 7, borderRadius: 4, background: c } }))), items.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "acp-day-preview" }, items.slice(0, 8).map((x) => {
+      return /* @__PURE__ */ React.createElement("button", { key: iso, type: "button", className: "acp-day", onClick: () => setSelected(iso), style: { padding: "10px 6px 12px", background: isSel ? PARCHMENT : "transparent", border: "none", borderTop: isSel ? `3px solid ${BRASS}` : "3px solid transparent", borderRight: `1px solid ${HAIRLINE}`, cursor: "pointer", textAlign: "center", fontFamily: "inherit", display: "flex", flexDirection: "column", alignItems: "stretch" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: MUTED, letterSpacing: 0.3 } }, DAY_LABELS[(d.getDay() + 6) % 7]), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontSize: 18, marginTop: 2, color: isToday ? BRASS : CHARCOAL, fontWeight: isToday ? 600 : 500 } }, d.getDate()), /* @__PURE__ */ React.createElement("div", { className: "acp-day-badges", style: { display: "flex", justifyContent: "center", alignItems: "center", gap: 4, marginTop: 5, minHeight: 16 } }, isToday && /* @__PURE__ */ React.createElement("span", { className: "acp-today-inline", title: items.length ? `${pending} pendientes de ${items.length}` : "Hoy", style: { ...chip(BRASS, INK), padding: "1px 5px" } }, "Hoy", items.length > 0 ? `·${items.length}` : ""), items.length > 0 && /* @__PURE__ */ React.createElement("span", { className: isToday ? "acp-count-today" : "", title: `${pending} pendientes de ${items.length}`, style: { fontSize: 10.5, fontWeight: 600, color: "#fff", background: pending ? BRASS : SAGE, borderRadius: 8, padding: "1px 6px", minWidth: 15, lineHeight: "14px" } }, items.length), hasMeeting && /* @__PURE__ */ React.createElement(Users, { size: 10, color: INK_LIGHT }), hasShared && /* @__PURE__ */ React.createElement(Share, { size: 10, color: SKY }), cardColors.map((c) => /* @__PURE__ */ React.createElement("span", { key: c, className: "acp-dot", style: { width: 7, height: 7, borderRadius: 4, background: c } }))), items.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "acp-day-preview" }, items.slice(0, 8).map((x) => {
         const obj = x.task || x.item || x.card;
         const isDone = x.kind === "task" ? x.task.completed : x.kind === "card" ? cardDoneOn(x.card, iso) : !!((doc.sharedStatus[x.item.id] || {}).done || {})[iso];
         const color = x.kind === "card" ? (cols[x.card.columnId] || {}).color || MUTED : x.kind === "shared" ? SKY : obj.type === "reunion" ? SKY : obj.type === "aviso" ? "#8A5A2B" : INK_LIGHT;
@@ -3068,7 +3287,7 @@
           d.sharedSeen[id] = true;
         })
       }
-    ), view === "notes" && /* @__PURE__ */ React.createElement(NotesView, { doc, update, onSendToAgenda: sendNoteToAgenda }), pwOpen && /* @__PURE__ */ React.createElement(PasswordModal, { backend, onClose: () => setPwOpen(false), onDone: () => {
+    ), view === "notes" && /* @__PURE__ */ React.createElement(NotesView, { doc, update, onSendToAgenda: sendNoteToAgenda }), icsOpen && /* @__PURE__ */ React.createElement(ImportICSModal, { todayISO, importedUids: doc.icsImported || {}, onClose: () => setIcsOpen(false), onImport: importICS }), delOpen && /* @__PURE__ */ React.createElement(DeleteAllModal, { userName: user.name, onClose: () => setDelOpen(false), onConfirm: deleteAll }), pwOpen && /* @__PURE__ */ React.createElement(PasswordModal, { backend, onClose: () => setPwOpen(false), onDone: () => {
       setPwOpen(false);
       setNotice("Listo: tu clave se cambió. La próxima vez que ingreses usá la nueva.");
     } }), /* @__PURE__ */ React.createElement(Toasts, { toasts, onClose: (id) => setToasts((t) => t.filter((x) => x.id !== id)), onOpen: openNotif }), ringing.length > 0 && /* @__PURE__ */ React.createElement(AlarmOverlay, { ringing, onStop: stopAlarm, onSnooze: snoozeAlarm, onDone: doneAlarm }));
